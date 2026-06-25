@@ -2,14 +2,24 @@
 
 :root {
   --bg-base: #0a0a0f;
-  --bg-card: #1a1a24;
-  --bg-border: #2a2a38;
+  --bg-card: #14141e;
+  --bg-card-raised: #1c1c2a;
+  --bg-border: #252535;
   --accent-green: #00e676;
+  --accent-green-dim: rgba(0, 230, 118, 0.12);
   --accent-amber: #f59e0b;
+  --accent-amber-dim: rgba(245, 158, 11, 0.12);
   --accent-red: #ef4444;
+  --accent-red-dim: rgba(239, 68, 68, 0.12);
   --accent-blue: #3b82f6;
+  --accent-violet: #7c3aed;
   --text-primary: #f0f0f8;
-  --text-muted: #8888aa;
+  --text-secondary: #c4c4d8;
+  --text-muted: #6868a0;
+  --radius-card: 10px;
+  --radius-btn: 7px;
+  --transition-fast: 120ms cubic-bezier(0.25, 0, 0.1, 1);
+  --transition-base: 160ms cubic-bezier(0.25, 0, 0.1, 1);
 }
 
 @theme inline {
@@ -33,15 +43,52 @@ body {
   margin: 0;
 }
 
+/* ─── Entrance animations ─────────────────────────────────────────────────── */
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Pulse / spin ────────────────────────────────────────────────────────── */
+
 @keyframes pulse-dot {
   0%, 100% {
     opacity: 1;
     transform: scale(1);
   }
   50% {
-    opacity: 0.5;
-    transform: scale(0.85);
+    opacity: 0.45;
+    transform: scale(0.8);
   }
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.9); opacity: 0.7; }
+  70%  { transform: scale(1.6); opacity: 0; }
+  100% { transform: scale(0.9); opacity: 0; }
 }
 
 @keyframes spin-slow {
@@ -50,71 +97,194 @@ body {
   }
 }
 
-@keyframes slide-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ─── Revenue bump ────────────────────────────────────────────────────────── */
+
+@keyframes revenue-bump {
+  0%   { transform: scale(1);    text-shadow: none; }
+  30%  { transform: scale(1.07); text-shadow: 0 0 28px rgba(0, 230, 118, 0.65), 0 0 60px rgba(0, 230, 118, 0.25); }
+  100% { transform: scale(1);    text-shadow: none; }
 }
+
+/* ─── Bar grow ────────────────────────────────────────────────────────────── */
+
+@keyframes bar-grow {
+  from { width: 0; }
+}
+
+/* ─── Count tick ─────────────────────────────────────────────────────────── */
+
+@keyframes count-tick {
+  0%   { transform: translateY(-6px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+
+/* ─── Reduced motion overrides ────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
   @keyframes slide-in {
     from { opacity: 0; }
-    to { opacity: 1; }
+    to   { opacity: 1; }
   }
-
+  @keyframes fade-up {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+    50%      { opacity: 0.5; }
   }
+  @keyframes pulse-ring {
+    0%, 100% { opacity: 0; }
+  }
+  @keyframes revenue-bump {
+    0%   { text-shadow: none; }
+    30%  { text-shadow: 0 0 20px rgba(0, 230, 118, 0.5); }
+    100% { text-shadow: none; }
+  }
+  @keyframes bar-grow {
+    from { width: 0; }
+  }
+  @keyframes count-tick {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+}
+
+/* ─── Utility classes ─────────────────────────────────────────────────────── */
+
+.animate-fade-up {
+  animation: fade-up 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out both;
 }
 
 .animate-slide-in {
-  animation: slide-in 150ms ease-out both;
+  animation: slide-in 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .animate-pulse-dot {
-  animation: pulse-dot 1.5s ease-in-out infinite;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s ease-out infinite;
 }
 
 .animate-spin-slow {
   animation: spin-slow 1s linear infinite;
 }
 
-@keyframes revenue-bump {
-  0% { transform: scale(1); text-shadow: none; }
-  35% { transform: scale(1.12); text-shadow: 0 0 18px rgba(0, 230, 118, 0.55); }
-  100% { transform: scale(1); text-shadow: none; }
-}
-
 .revenue-bump {
-  animation: revenue-bump 600ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: revenue-bump 700ms cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: right center;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .revenue-bump {
+    animation: revenue-bump 500ms ease-out;
+  }
+}
+
+/* ─── Approval buttons ────────────────────────────────────────────────────── */
+
+.approve-btn,
+.reject-btn {
+  transition:
+    filter var(--transition-fast),
+    transform var(--transition-fast),
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.approve-btn:not(:disabled):hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.3);
+}
+
+.approve-btn:not(:disabled):active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+
+.reject-btn:not(:disabled):hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+}
+
+.reject-btn:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+/* ─── Agent card hover ────────────────────────────────────────────────────── */
+
+.agent-card {
+  transition:
+    background var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
+}
+
+.agent-card:hover {
+  background: var(--bg-card-raised) !important;
+  border-color: #353548 !important;
+}
+
+/* ─── Jobs table row hover ────────────────────────────────────────────────── */
+
+.jobs-row {
+  transition: background var(--transition-fast);
+}
+
+.jobs-row:hover {
+  background: var(--bg-card-raised);
+}
+
+/* ─── Job link hover ──────────────────────────────────────────────────────── */
+
+.job-link {
+  transition: color var(--transition-fast);
+}
+
+.job-link:hover {
+  color: var(--accent-blue) !important;
+}
+
+/* ─── Stats counter ───────────────────────────────────────────────────────── */
+
+.stat-value-entered {
+  animation: count-tick 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ─── Learnings bar ───────────────────────────────────────────────────────── */
+
+.learning-bar-fill {
+  animation: bar-grow 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .learning-bar-fill {
     animation: none;
   }
 }
 
-.approve-btn,
-.reject-btn {
-  transition: filter 140ms ease-out, transform 140ms ease-out, background 140ms ease-out;
+/* ─── Scrollbars ──────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
 }
-.approve-btn:not(:disabled):hover {
-  filter: brightness(1.08);
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
-.approve-btn:not(:disabled):active {
-  transform: translateY(1px);
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-border);
+  border-radius: 2px;
 }
-.reject-btn:not(:disabled):hover {
-  background: rgba(239, 68, 68, 0.2);
-}
-.reject-btn:not(:disabled):active {
-  transform: translateY(1px);
+
+::-webkit-scrollbar-thumb:hover {
+  background: #353548;
 }

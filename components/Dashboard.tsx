@@ -13,6 +13,13 @@ interface Props {
   initial: DashboardPayload;
 }
 
+const STAT_CONFIGS = [
+  { label: 'Detected',  key: 'found'    as const, color: 'var(--accent-blue)'  },
+  { label: 'Pending',   key: 'awaiting' as const, color: 'var(--accent-amber)' },
+  { label: 'Billed',    key: 'charged'  as const, color: 'var(--accent-green)' },
+  { label: 'Skipped',   key: 'skipped'  as const, color: 'var(--text-muted)'   },
+];
+
 export function Dashboard({ initial }: Props) {
   const [data, setData] = useState<DashboardPayload>(initial);
   const [tickInFlight, setTickInFlight] = useState(false);
@@ -78,65 +85,80 @@ export function Dashboard({ initial }: Props) {
         {/* Left rail: agent roster */}
         <AgentRoster events={data.events} />
 
-        {/* Center: activity feed */}
+        {/* Center: activity feed + jobs table */}
         <main className="flex flex-col flex-1 min-w-0 overflow-y-auto">
           <ActivityFeed events={data.events} />
 
-          {/* Jobs table */}
-          <section>
+          {/* Jobs section */}
+          <section className="animate-fade-up" style={{ animationDelay: '80ms' }}>
             <div
-              className="text-xs font-semibold uppercase tracking-widest px-5 py-3"
-              style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--bg-border)', borderTop: '1px solid var(--bg-border)' }}
+              className="flex items-center justify-between px-5 py-2.5"
+              style={{
+                color: 'var(--text-muted)',
+                borderBottom: '1px solid var(--bg-border)',
+                borderTop: '1px solid var(--bg-border)',
+              }}
             >
-              Jobs
+              <span
+                className="text-xs font-semibold uppercase"
+                style={{ letterSpacing: '0.1em' }}
+              >
+                Companies
+              </span>
+              <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
+                {data.jobs.length} total
+              </span>
             </div>
             <JobsTable jobs={data.jobs} />
           </section>
         </main>
 
-        {/* Right rail: approval queue + stat cards */}
+        {/* Right rail: stats + approvals + learnings */}
         <aside
           className="w-80 shrink-0 flex flex-col overflow-y-auto"
           style={{ borderLeft: '1px solid var(--bg-border)' }}
         >
           {/* Stats strip */}
           <div
-            className="grid grid-cols-2 gap-px"
+            className="grid grid-cols-2 gap-px animate-fade-in"
             style={{ borderBottom: '1px solid var(--bg-border)', background: 'var(--bg-border)' }}
           >
-            {[
-              { label: 'Found', value: data.counts.found, color: '#3b82f6' },
-              { label: 'Awaiting', value: data.counts.awaiting, color: 'var(--accent-amber)' },
-              { label: 'Charged', value: data.counts.charged, color: '#10b981' },
-              { label: 'Skipped', value: data.counts.skipped, color: 'var(--text-muted)' },
-            ].map(({ label, value, color }) => (
+            {STAT_CONFIGS.map(({ label, key, color }) => (
               <div
                 key={label}
-                className="px-4 py-3 flex flex-col gap-0.5"
+                className="px-4 py-3.5 flex flex-col gap-1"
                 style={{ background: 'var(--bg-card)' }}
               >
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
                   {label}
                 </span>
                 <span
-                  className="text-xl font-bold font-mono leading-none"
+                  className="text-2xl font-bold font-mono leading-none tabular-nums"
                   style={{ color, fontFamily: 'var(--font-geist-mono)' }}
                 >
-                  {value}
+                  {data.counts[key]}
                 </span>
               </div>
             ))}
           </div>
 
-          {/* Approval queue */}
+          {/* Approvals section header */}
           <div
-            className="text-xs font-semibold uppercase tracking-widest px-5 py-3 flex items-center gap-2"
-            style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--bg-border)' }}
+            className="flex items-center gap-2 px-4 py-2.5"
+            style={{
+              color: 'var(--text-muted)',
+              borderBottom: '1px solid var(--bg-border)',
+            }}
           >
-            Approvals
+            <span
+              className="text-xs font-semibold uppercase"
+              style={{ letterSpacing: '0.1em' }}
+            >
+              Approvals
+            </span>
             {awaitingJobs.length > 0 && (
               <span
-                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold"
+                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold animate-pulse-dot"
                 style={{ background: 'var(--accent-amber)', color: '#0a0a0f' }}
               >
                 {awaitingJobs.length}
@@ -150,10 +172,23 @@ export function Dashboard({ initial }: Props) {
           {data.learnings && (
             <>
               <div
-                className="text-xs font-semibold uppercase tracking-widest px-5 py-3"
-                style={{ color: 'var(--text-muted)', borderBottom: '1px solid var(--bg-border)', borderTop: '1px solid var(--bg-border)' }}
+                className="flex items-center gap-2 px-4 py-2.5"
+                style={{
+                  color: 'var(--text-muted)',
+                  borderBottom: '1px solid var(--bg-border)',
+                  borderTop: '1px solid var(--bg-border)',
+                }}
               >
-                Agent intelligence
+                <span
+                  className="text-xs font-semibold uppercase"
+                  style={{ color: '#7c3aed', letterSpacing: '0.1em' }}
+                >
+                  Agent intelligence
+                </span>
+                <span
+                  className="animate-pulse-dot inline-block w-1.5 h-1.5 rounded-full"
+                  style={{ background: '#7c3aed' }}
+                />
               </div>
               <LearningsPanel learnings={data.learnings} />
             </>

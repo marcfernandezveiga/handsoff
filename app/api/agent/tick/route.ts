@@ -1,12 +1,13 @@
-// POST /api/agent/tick
+// POST /api/agent/tick  — called by the dashboard on an interval
+// GET  /api/agent/tick  — called by Vercel cron (crons always use GET)
+//
 // Runs one Scout + Worker cycle. Safe to call repeatedly (idempotent-ish).
-// The dashboard calls this on an interval so the business runs while open.
 
 import { runScout, runWorker } from "@/lib/agents";
 
 export const dynamic = "force-dynamic";
 
-export async function POST() {
+async function runTick(): Promise<Response> {
   try {
     await runScout();
     await runWorker();
@@ -20,4 +21,12 @@ export async function POST() {
       error: err instanceof Error ? err.message : String(err),
     });
   }
+}
+
+export async function POST() {
+  return runTick();
+}
+
+export async function GET() {
+  return runTick();
 }

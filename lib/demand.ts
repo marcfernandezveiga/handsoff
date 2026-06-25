@@ -1,206 +1,316 @@
-// Scout demand source.
-// Primary: Hacker News Algolia API (fully open, no auth, never blocks datacenter IPs).
-// Fallback: a curated queue of realistic small jobs so the loop ALWAYS produces work.
+// Scout demand source: Companies House filing deadline monitor.
 //
-// Reddit's r/forhire JSON returns 403 for datacenter IPs (Vercel, local), so it is
-// not viable as a live source. HN Algolia is the reliable replacement.
+// Primary: Companies House REST API (HTTP Basic auth — API key as username, blank password).
+//   Uses /advanced-search/companies to get active companies, then checks /company/{number}
+//   for accounts.next_due, accounts.overdue, and confirmation_statement.next_due.
+//   Surfaces companies whose accounts are due within ~30 days OR are already overdue.
+//
+// Fallback: a curated queue of ~12 realistic UK small companies with plausible imminent
+//   or overdue filing deadlines. Used when CH_API_KEY is missing or the API call fails.
+//   The function never throws — any error silently falls back to curated.
 
 export interface DemandItem {
-  source: string; // 'hn' | 'curated'
+  source: string; // 'companies-house' | 'curated'
   source_url: string;
   title: string;
   body: string;
   budget_text: string | null;
 }
 
-interface AlgoliaHit {
-  objectID: string;
-  comment_text?: string;
-  story_title?: string;
-  story_text?: string;
-  title?: string;
-  author?: string;
-  created_at?: string;
+// ---------------------------------------------------------------------------
+// Companies House API types
+// ---------------------------------------------------------------------------
+
+interface CHCompanySearchItem {
+  company_number: string;
+  company_name: string;
+  company_status?: string;
 }
 
-interface AlgoliaResponse {
-  hits: AlgoliaHit[];
+interface CHAdvancedSearchResponse {
+  items?: CHCompanySearchItem[];
+  total_results?: number;
 }
 
-// Queries that surface freelance/hiring demand in HN comments.
-const HN_QUERIES = [
-  "seeking freelancer",
-  "looking for freelancer",
-  "freelancer",
-];
-
-/** Strip HTML tags + decode the few entities HN comments contain. */
-function stripHtml(input: string): string {
-  return input
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&#x2F;/g, "/")
-    .replace(/&#x27;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, "&")
-    .replace(/&gt;/g, ">")
-    .replace(/&lt;/g, "<")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Extract a budget mention, e.g. "$50" or "$200/hr". */
-function extractBudget(text: string): string | null {
-  const match = text.match(/\$[\d,]+(?:\/hr|\/hour|\/mo|\/month|k)?/i);
-  return match ? match[0] : null;
-}
-
-/**
- * Fetch recent HN comments that read like freelance/hiring demand.
- * Returns [] on any failure (fail-open).
- */
-export async function fetchHackerNewsDemand(): Promise<DemandItem[]> {
-  const items: DemandItem[] = [];
-
-  for (const query of HN_QUERIES) {
-    try {
-      const url = `https://hn.algolia.com/api/v1/search_by_date?tags=comment&query=${encodeURIComponent(
-        query
-      )}&hitsPerPage=30`;
-
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" },
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        console.warn(`[demand] HN fetch failed for "${query}": ${res.status}`);
-        continue;
-      }
-
-      const json: AlgoliaResponse = await res.json();
-
-      for (const hit of json.hits ?? []) {
-        const raw = hit.comment_text ?? hit.story_text ?? "";
-        if (!raw) continue;
-
-        const body = stripHtml(raw);
-        // Skip trivially short comments — not real job descriptions
-        if (body.length < 60) continue;
-
-        const title =
-          (hit.story_title ?? hit.title ?? body.slice(0, 80)).trim() ||
-          "Hacker News freelance request";
-
-        items.push({
-          source: "hn",
-          source_url: `https://news.ycombinator.com/item?id=${hit.objectID}`,
-          title: title.slice(0, 160),
-          body: body.slice(0, 2000),
-          budget_text: extractBudget(body),
-        });
-      }
-    } catch (err) {
-      console.warn(`[demand] HN error for "${query}":`, err);
-    }
-  }
-
-  // Dedupe by source_url
-  const seen = new Set<string>();
-  return items.filter((i) => {
-    if (seen.has(i.source_url)) return false;
-    seen.add(i.source_url);
-    return true;
-  });
+interface CHCompanyProfile {
+  company_number: string;
+  company_name: string;
+  company_status?: string;
+  accounts?: {
+    next_due?: string;    // ISO date string e.g. "2024-09-30"
+    overdue?: boolean;
+  };
+  confirmation_statement?: {
+    next_due?: string;
+    overdue?: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Curated fallback queue: realistic small jobs an AI can actually deliver.
-// Guarantees the demo loop never stalls when HN is empty or exhausted.
-// Each call to nextCuratedItem() returns a fresh, unique-URL item.
+// Penalty band calculation
+// ---------------------------------------------------------------------------
+
+/** Return the CH penalty band description for a given number of days overdue. */
+function penaltyBand(daysOverdue: number): string {
+  if (daysOverdue <= 0) return "no penalty yet";
+  if (daysOverdue <= 30) return "£150 (up to 1 month late)";
+  if (daysOverdue <= 90) return "£375 (1–3 months late)";
+  if (daysOverdue <= 180) return "£750 (3–6 months late)";
+  return "£1,500 (6+ months late)";
+}
+
+/** Days between today and a due date. Negative = overdue. */
+function daysUntil(dueDateStr: string): number {
+  const due = new Date(dueDateStr);
+  const now = new Date();
+  // Strip time component for clean day comparison
+  due.setHours(0, 0, 0, 0);
+  now.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Format a date string as "D Month YYYY" e.g. "30 September 2024". */
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/** Map a company to a DemandItem. */
+function companyToDemandItem(profile: CHCompanyProfile): DemandItem {
+  const { company_number, company_name, accounts } = profile;
+  const chUrl = `https://find-and-update.company-information.service.gov.uk/company/${company_number}`;
+
+  const nextDue = accounts?.next_due ?? "";
+  const isOverdue = accounts?.overdue ?? false;
+  const days = nextDue ? daysUntil(nextDue) : 0;
+  const daysOverdue = isOverdue ? Math.abs(days) : 0;
+
+  const dueDateFmt = nextDue ? formatDate(nextDue) : "unknown";
+  const penalty = penaltyBand(daysOverdue);
+
+  const statusLine = isOverdue
+    ? `Accounts are OVERDUE by approximately ${daysOverdue} day(s).`
+    : `Accounts are due in ${days} day(s) (${dueDateFmt}).`;
+
+  const title = `${company_name} accounts due ${dueDateFmt}`;
+
+  const body = [
+    `Company: ${company_name} (${company_number})`,
+    statusLine,
+    `Current penalty band: ${penalty}`,
+    `Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts.`,
+    `Late filing can result in automatic penalties and, if persistent, compulsory strike-off.`,
+  ].join(" ");
+
+  const budgetText = isOverdue ? penalty.split(" ")[0] : null;
+
+  return {
+    source: "companies-house",
+    source_url: chUrl,
+    title,
+    body,
+    budget_text: budgetText,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Live Companies House fetch
+// ---------------------------------------------------------------------------
+
+const CH_BASE = "https://api.company-information.service.gov.uk";
+
+/** Fetch a batch of active companies and filter to those with imminent/overdue accounts. */
+export async function fetchCompaniesHouseDemand(): Promise<DemandItem[]> {
+  const apiKey = process.env.CH_API_KEY;
+  if (!apiKey) {
+    console.warn("[demand] CH_API_KEY not set — using curated fallback");
+    return [];
+  }
+
+  const auth = Buffer.from(`${apiKey}:`).toString("base64");
+  const headers = {
+    Authorization: `Basic ${auth}`,
+    Accept: "application/json",
+  };
+
+  try {
+    // Step 1: Advanced search for a batch of active companies
+    const searchRes = await fetch(
+      `${CH_BASE}/advanced-search/companies?status=active&size=20`,
+      { headers, cache: "no-store" }
+    );
+
+    if (!searchRes.ok) {
+      console.warn(`[demand] CH search failed: ${searchRes.status}`);
+      return [];
+    }
+
+    const searchData: CHAdvancedSearchResponse = await searchRes.json();
+    const companies = searchData.items ?? [];
+
+    if (companies.length === 0) return [];
+
+    // Step 2: Fetch individual profiles and filter for imminent/overdue accounts
+    const profiles = await Promise.all(
+      companies.map(async (c): Promise<CHCompanyProfile | null> => {
+        try {
+          const r = await fetch(`${CH_BASE}/company/${c.company_number}`, {
+            headers,
+            cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return (await r.json()) as CHCompanyProfile;
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const items: DemandItem[] = [];
+
+    for (const profile of profiles) {
+      if (!profile) continue;
+      const { accounts } = profile;
+      if (!accounts?.next_due) continue;
+
+      const days = daysUntil(accounts.next_due);
+      const isOverdue = accounts.overdue ?? false;
+
+      // Include if due within 30 days OR already overdue
+      if (days <= 30 || isOverdue) {
+        items.push(companyToDemandItem(profile));
+      }
+    }
+
+    return items;
+  } catch (err) {
+    console.warn("[demand] CH error:", err);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Curated fallback: ~12 realistic UK small companies with plausible deadlines
 // ---------------------------------------------------------------------------
 
 const CURATED_TEMPLATES: Omit<DemandItem, "source_url">[] = [
   {
     source: "curated",
-    title: "Write a SaaS landing page hero section",
-    body: "I just built an invoicing tool for freelance designers and my homepage copy is flat. I need a punchy hero headline plus a 70-90 word supporting paragraph that explains the product and pushes a free trial. Tone: confident, no jargon.",
-    budget_text: "$25",
+    title: "Hartwell Joinery Ltd accounts due 30 June 2026",
+    body: "Company: Hartwell Joinery Ltd (09234517) Accounts are due in 5 day(s) (30 June 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
   },
   {
     source: "curated",
-    title: "Summarise a 10-page strategy document into one page",
-    body: "I have a long internal strategy memo (roughly 10 pages) and need a clean one-page executive summary with the three key decisions and the rationale behind each. Bullet points are fine. The text is pasted below.",
-    budget_text: "$40",
+    title: "Bluestone Consulting Ltd accounts OVERDUE",
+    body: "Company: Bluestone Consulting Ltd (07812340) Accounts are OVERDUE by approximately 45 day(s). Current penalty band: £375 (1–3 months late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£375",
   },
   {
     source: "curated",
-    title: "Draft 5 cold outreach emails for a B2B SaaS",
-    body: "We sell an analytics dashboard to e-commerce founders. I need 5 short cold emails (under 120 words each), each with a different angle: time saved, revenue lift, competitor benchmark, free audit offer, and a short follow-up. Friendly, not salesy.",
-    budget_text: "$50",
+    title: "Meridian Printworks Ltd accounts due 15 July 2026",
+    body: "Company: Meridian Printworks Ltd (10456781) Accounts are due in 20 day(s) (15 July 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
   },
   {
     source: "curated",
-    title: "Clean up and standardise a messy CSV of contacts",
-    body: "I have a list of about 200 contacts with inconsistent capitalisation, mixed name formats, and stray whitespace. I need rules and a cleaned output: proper case names, split first/last, normalised company names, and flagged duplicates. Describe the transformation clearly.",
-    budget_text: "$30",
+    title: "Foxfield Catering Services Ltd accounts OVERDUE",
+    body: "Company: Foxfield Catering Services Ltd (08923651) Accounts are OVERDUE by approximately 95 day(s). Current penalty band: £750 (3–6 months late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£750",
   },
   {
     source: "curated",
-    title: "Write product descriptions for 8 handmade candles",
-    body: "Etsy shop. I need short, evocative product descriptions (40-60 words each) for 8 soy candles with scents like sea salt, fig, smoked cedar, and bergamot. Each should hint at a mood or moment. List of names and scents below.",
-    budget_text: "$35",
+    title: "Oakbrook Estates Ltd accounts due 7 July 2026",
+    body: "Company: Oakbrook Estates Ltd (11023478) Accounts are due in 12 day(s) (7 July 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
   },
   {
     source: "curated",
-    title: "Research and summarise 3 competitors for a note-taking app",
-    body: "I'm validating a minimalist note-taking app. I need a short competitive brief on three well-known alternatives: their core positioning, pricing model, one standout strength, and one common complaint each. Keep it tight and factual.",
-    budget_text: "$45",
+    title: "Pennine Digital Ltd accounts OVERDUE",
+    body: "Company: Pennine Digital Ltd (12345670) Accounts are OVERDUE by approximately 8 day(s). Current penalty band: £150 (up to 1 month late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£150",
   },
   {
     source: "curated",
-    title: "Draft a job spec for a part-time community manager",
-    body: "Early-stage startup. We want to hire a part-time community manager for our Discord and Twitter. I need a clear job spec: responsibilities, must-have skills, nice-to-haves, hours, and a short company blurb. Make it appealing but honest.",
-    budget_text: "$40",
+    title: "Cloverleaf Recruitment Ltd accounts due 28 June 2026",
+    body: "Company: Cloverleaf Recruitment Ltd (06789234) Accounts are due in 3 day(s) (28 June 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
   },
   {
     source: "curated",
-    title: "Rewrite a confusing FAQ section to be clear and friendly",
-    body: "Our support FAQ has 6 entries written in stiff legalese and customers keep emailing the same questions. I need them rewritten in plain, warm English while keeping the meaning accurate. Original entries pasted below.",
-    budget_text: "$30",
+    title: "Redgate Logistics Ltd accounts OVERDUE",
+    body: "Company: Redgate Logistics Ltd (05678912) Accounts are OVERDUE by approximately 210 day(s). Current penalty band: £1,500 (6+ months late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£1,500",
+  },
+  {
+    source: "curated",
+    title: "Ashford Interiors Ltd accounts due 25 July 2026",
+    body: "Company: Ashford Interiors Ltd (13456789) Accounts are due in 30 day(s) (25 July 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
+  },
+  {
+    source: "curated",
+    title: "Thorngate Software Ltd accounts OVERDUE",
+    body: "Company: Thorngate Software Ltd (09876540) Accounts are OVERDUE by approximately 62 day(s). Current penalty band: £375 (1–3 months late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£375",
+  },
+  {
+    source: "curated",
+    title: "Larchwood Dental Practice Ltd accounts due 10 July 2026",
+    body: "Company: Larchwood Dental Practice Ltd (08134567) Accounts are due in 15 day(s) (10 July 2026). Current penalty band: no penalty yet. Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: null,
+  },
+  {
+    source: "curated",
+    title: "Caldwell Events Ltd accounts OVERDUE",
+    body: "Company: Caldwell Events Ltd (07654321) Accounts are OVERDUE by approximately 155 day(s). Current penalty band: £750 (3–6 months late). Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts. Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
+    budget_text: "£750",
   },
 ];
 
 let curatedIndex = 0;
 
 /**
- * Return the next curated job with a unique source_url so dedupe never blocks it.
- * Cycles through the template list, appending a counter to guarantee uniqueness.
+ * Return the next curated company lead with a unique source_url so Scout dedupe
+ * never blocks it. Cycles through all templates before repeating.
  */
 export function nextCuratedItem(): DemandItem {
   const template = CURATED_TEMPLATES[curatedIndex % CURATED_TEMPLATES.length];
   const cycle = Math.floor(curatedIndex / CURATED_TEMPLATES.length);
   curatedIndex++;
 
-  const suffix =
-    cycle > 0
-      ? `-r${cycle}`
-      : "";
-  const slug = template.title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const suffix = cycle > 0 ? `-r${cycle}` : "";
+  // Extract company number from body for a stable slug
+  const numMatch = template.body.match(/\((\d{8})\)/);
+  const compNum = numMatch ? numMatch[1] : String(curatedIndex);
 
   return {
     ...template,
-    source_url: `curated://job/${slug}${suffix}`,
+    source_url: `https://find-and-update.company-information.service.gov.uk/company/${compNum}${suffix}`,
   };
 }
 
 /**
  * Unified demand fetch for the Scout.
- * Tries HN first; always appends one curated item so a tick never produces
- * zero candidates. Scout then dedupes by source_url against existing jobs.
+ *
+ * Returns live Companies House leads (companies with imminent/overdue filings)
+ * plus one fresh curated item as the per-tick reliability guarantee.
+ *
+ * Never throws. Falls back to curated-only on any error.
  */
 export async function fetchDemand(): Promise<DemandItem[]> {
-  const hn = await fetchHackerNewsDemand();
-  // Always include one fresh curated item as the reliability guarantee.
+  let live: DemandItem[] = [];
+  try {
+    live = await fetchCompaniesHouseDemand();
+  } catch {
+    // Already handled inside fetchCompaniesHouseDemand, but belt-and-braces
+    live = [];
+  }
+
   const curated = nextCuratedItem();
-  return [...hn, curated];
+  return [...live, curated];
 }

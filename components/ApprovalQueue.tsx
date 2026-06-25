@@ -19,22 +19,22 @@ export function ApprovalQueue({ jobs, onUpdate }: Props) {
   if (pending.length === 0) {
     return (
       <div
-        className="flex flex-col items-center justify-center h-32 gap-2 mx-5 my-4 rounded-lg"
-        style={{ background: 'var(--bg-card)', border: '1px solid var(--bg-border)' }}
+        className="flex flex-col items-center justify-center h-28 gap-2 mx-3 my-3 rounded-xl"
+        style={{
+          background: 'var(--accent-green-dim)',
+          border: '1px solid rgba(0, 230, 118, 0.15)',
+        }}
       >
-        <span
-          className="inline-block w-2 h-2 rounded-full"
-          style={{ background: 'var(--accent-green)' }}
-        />
+        <span style={{ color: 'var(--accent-green)', fontSize: 18, opacity: 0.6 }}>✓</span>
         <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          Nothing waiting on you
+          No companies awaiting review
         </span>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 px-5 py-4">
+    <div className="flex flex-col gap-3 px-3 py-3">
       {pending.map((job) => (
         <ApprovalCard key={job.id} job={job} onUpdate={onUpdate} />
       ))}
@@ -48,7 +48,6 @@ interface CardProps {
 }
 
 function ApprovalCard({ job, onUpdate }: CardProps) {
-  // 'idle' | the action currently in flight. Optimistically hides the card on success.
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [hidden, setHidden] = useState(false);
 
@@ -61,7 +60,6 @@ function ApprovalCard({ job, onUpdate }: CardProps) {
       if (!res.ok) throw new Error('Failed');
       onUpdate(job.id, kind === 'approve' ? 'approved' : 'rejected');
     } catch {
-      // Roll back the optimistic hide so the human can retry
       setHidden(false);
       setBusy(null);
     }
@@ -71,56 +69,74 @@ function ApprovalCard({ job, onUpdate }: CardProps) {
 
   return (
     <div
-      className="rounded-lg overflow-hidden"
+      className="rounded-xl overflow-hidden animate-slide-in"
       style={{
         background: 'var(--bg-card)',
-        border: '1px solid var(--bg-border)',
-        borderLeft: '3px solid var(--accent-amber)',
+        border: '1px solid rgba(245,158,11,0.25)',
+        boxShadow: '0 0 0 1px rgba(245,158,11,0.08) inset',
       }}
     >
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div>
-            <span
-              className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mb-2"
-              style={{ background: 'rgba(245,158,11,0.15)', color: 'var(--accent-amber)' }}
-            >
-              Awaiting approval
-            </span>
-            <h3
-              className="text-sm font-semibold leading-snug"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              {job.title}
-            </h3>
-          </div>
+      {/* Amber top accent bar */}
+      <div
+        style={{
+          height: 2,
+          background: 'linear-gradient(90deg, var(--accent-amber), rgba(245,158,11,0.3))',
+        }}
+      />
+
+      <div className="px-4 pt-3 pb-4">
+        {/* Header: badge + fee */}
+        <div className="flex items-center justify-between gap-3 mb-2.5">
           <span
-            className="text-sm font-bold shrink-0 font-mono"
+            className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={{
+              background: 'var(--accent-amber-dim)',
+              color: 'var(--accent-amber)',
+              border: '1px solid rgba(245,158,11,0.2)',
+            }}
+          >
+            Pending send
+          </span>
+          <span
+            className="text-base font-bold font-mono shrink-0"
             style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-geist-mono)' }}
           >
             {formatFee(job.fee_cents)}
           </span>
         </div>
 
+        {/* Title */}
+        <h3
+          className="text-sm font-semibold leading-snug mb-2"
+          style={{ color: 'var(--text-primary)' }}
+        >
+          {job.title}
+        </h3>
+
+        {/* Reasoning */}
         {job.reasoning && (
-          <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          <p
+            className="text-xs mb-3 leading-relaxed"
+            style={{ color: 'var(--text-muted)' }}
+          >
             {job.reasoning}
           </p>
         )}
 
+        {/* Deliverable preview */}
         {job.deliverable && (
           <div className="mb-3">
             <div
-              className="text-xs font-semibold uppercase tracking-wide mb-1.5"
-              style={{ color: 'var(--text-muted)' }}
+              className="text-xs font-semibold uppercase mb-1.5"
+              style={{ color: 'var(--text-muted)', letterSpacing: '0.08em' }}
             >
-              Deliverable preview
+              Reminder preview
             </div>
             <div
-              className="text-xs leading-relaxed rounded-md p-3 max-h-32 overflow-y-auto font-mono whitespace-pre-wrap"
+              className="text-xs leading-relaxed rounded-lg p-3 max-h-28 overflow-y-auto font-mono whitespace-pre-wrap"
               style={{
                 background: 'var(--bg-base)',
-                color: 'var(--text-primary)',
+                color: 'var(--text-secondary)',
                 border: '1px solid var(--bg-border)',
                 fontFamily: 'var(--font-geist-mono)',
               }}
@@ -130,26 +146,27 @@ function ApprovalCard({ job, onUpdate }: CardProps) {
           </div>
         )}
 
+        {/* Actions */}
         <div className="flex gap-2">
           <button
             onClick={() => run('approve')}
             disabled={busy !== null}
-            className="approve-btn flex-1 py-2 px-4 rounded-md text-xs font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60"
+            className="approve-btn flex-1 py-2.5 px-4 rounded-lg text-xs font-bold cursor-pointer disabled:cursor-default disabled:opacity-50"
             style={{ background: 'var(--accent-green)', color: '#0a0a0f' }}
           >
-            {busy === 'approve' ? 'Approving' : 'Approve and pay'}
+            {busy === 'approve' ? 'Sending...' : 'Send and bill'}
           </button>
           <button
             onClick={() => run('reject')}
             disabled={busy !== null}
-            className="reject-btn flex-1 py-2 px-4 rounded-md text-xs font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60"
+            className="reject-btn flex-1 py-2.5 px-4 rounded-lg text-xs font-semibold cursor-pointer disabled:cursor-default disabled:opacity-50"
             style={{
-              background: 'rgba(239,68,68,0.12)',
+              background: 'var(--accent-red-dim)',
               color: 'var(--accent-red)',
-              border: '1px solid rgba(239,68,68,0.3)',
+              border: '1px solid rgba(239,68,68,0.25)',
             }}
           >
-            {busy === 'reject' ? 'Rejecting' : 'Reject'}
+            {busy === 'reject' ? 'Rejecting...' : 'Reject'}
           </button>
         </div>
       </div>

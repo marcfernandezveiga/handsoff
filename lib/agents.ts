@@ -132,20 +132,20 @@ async function logEvent(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Scout: fetch r/forhire, insert new [HIRING] jobs, dedupe by source_url
+// Scout: fetch Companies House filing deadlines, dedupe by source_url
 // ---------------------------------------------------------------------------
 
 export async function runScout(): Promise<void> {
   await logEvent({
     agent: "scout",
     action: "started",
-    detail: "Scout waking up to scan Hacker News for fresh freelance demand.",
+    detail: "Scout checking Companies House for companies with imminent or overdue filing deadlines.",
   });
 
-  // fetchDemand returns live HN hits plus one curated fallback item (last in
-  // the array), so there is always at least one candidate. We cap HN intake per
-  // tick so the queue grows steadily rather than dumping dozens at once, while
-  // always keeping the trailing curated item as the reliability guarantee.
+  // fetchDemand returns live Companies House leads plus one curated fallback item
+  // (last in the array), so there is always at least one candidate. We cap live
+  // intake per tick so the queue grows steadily rather than dumping dozens at once,
+  // while always keeping the trailing curated item as the reliability guarantee.
   const SCOUT_INTAKE = 6;
   const all = await fetchDemand();
   const curated = all[all.length - 1]; // fetchDemand always appends one curated item

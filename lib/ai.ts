@@ -1,4 +1,10 @@
-// Worker LLM: decide whether an AI can fulfil a job, and if so draft the deliverable.
+// Worker LLM: receive a Companies House filing lead and draft a personalised reminder.
+//
+// The output includes:
+//   - A friendly reminder that accounts are due on <date>
+//   - The penalty band they risk if late (the £ figure)
+//   - A short prep checklist of what to file
+//   - A service fee between 2000–5000 cents
 //
 // Inference priority:
 //   1. Modal-hosted Qwen2.5-7B-Instruct  (MODAL_LLM_BASE_URL + MODAL_LLM_API_KEY + MODAL_LLM_MODEL)
@@ -23,16 +29,16 @@ export interface WorkerDecision {
 const MOCK_FULFIL: WorkerDecision = {
   decision: "fulfil",
   reasoning:
-    "[MOCK — no LLM key] This looks like a writing task an AI can handle well.",
+    "[MOCK — no LLM key] Filing reminder drafted for this company based on their upcoming deadline.",
   deliverable:
-    "Here is a professionally drafted response to your request. This demo deliverable shows the format the real AI worker would produce.",
-  feeCents: 500,
+    "Your accounts are due soon. To avoid a late filing penalty, you will need to submit your profit & loss statement, balance sheet, director's report, and notes to the accounts. We can handle the paperwork so you avoid any fines.",
+  feeCents: 3000,
 };
 
 const MOCK_SKIP: WorkerDecision = {
   decision: "skip",
   reasoning:
-    "[MOCK — no LLM key] This job appears to require in-person presence or specialist expertise beyond AI capability.",
+    "[MOCK — no LLM key] This lead does not meet the criteria for a filing reminder service.",
 };
 
 const hasModal = !!(
@@ -43,34 +49,44 @@ const hasModal = !!(
 
 const hasOpenAI = !!process.env.OPENAI_API_KEY;
 
+/** Random fee between 2000 and 5000 cents. */
+function randomFeeCents(): number {
+  return Math.floor(Math.random() * 3001) + 2000;
+}
+
 function buildPrompt(job: {
   title: string;
   body: string;
   budget_text: string | null;
 }): string {
-  return `You are an autonomous AI agent that runs a small services business.
-A potential client posted the following job on Reddit r/forhire.
+  return `You are an autonomous agent that helps UK small businesses avoid late filing penalties at Companies House.
 
+A company has been flagged with an upcoming or overdue accounts filing deadline. Your job is to draft a personalised, helpful filing reminder on behalf of a professional filing service.
+
+Company lead:
 Title: ${job.title}
-Budget: ${job.budget_text ?? "not specified"}
-Description:
+Details:
 ${job.body.slice(0, 1200)}
 
-Your job is to decide:
-1. Can an AI (text generation only, no browsing, no code execution, no calls) deliver a complete, valuable result for this job within minutes?
-2. If yes, draft the actual deliverable right now — the real output the client asked for.
-3. Propose a fee in cents (50 to 500) that is fair for the work done.
+Draft a filing reminder that includes ALL of the following:
+1. A friendly, direct note that their accounts are due on the stated date (or are already overdue by X days).
+2. The specific penalty they risk if they do not file on time — quote the £ figure from the lead details.
+3. A short, practical checklist of what they need to prepare: profit & loss statement, balance sheet, director's report, notes to the accounts, and any relevant supplementary schedules.
+4. A brief, no-pressure offer to help them get filed on time.
 
-Good AI jobs: writing, proofreading, copywriting, summaries, templates, emails, tweets, bios, product descriptions, simple code snippets, advice.
-Bad AI jobs: anything requiring in-person work, unique personal knowledge, ongoing relationships, phone calls, design with specific brand assets.
+Tone: direct, practical, and helpful. Not salesy. Not corporate. Write like a knowledgeable friend who knows the rules.
+
+Banned words — do not use any of these: seamless, elevate, leverage, synergy, game-changer, cutting-edge, transform, unlock, empower.
 
 Respond with a JSON object matching this exact schema:
 {
-  "decision": "fulfil" | "skip",
-  "reasoning": "1-2 sentence explanation of why",
-  "deliverable": "the actual work product (only if decision is fulfil; write the real thing, not a description of it)",
-  "feeCents": number between 50 and 500 (only if decision is fulfil)
-}`;
+  "decision": "fulfil",
+  "reasoning": "1-2 sentences on why this lead is worth pursuing",
+  "deliverable": "the full filing reminder text, written directly to the company director",
+  "feeCents": a number between 2000 and 5000
+}
+
+Always set decision to "fulfil" for Companies House leads — every company with an overdue or imminent deadline is a valid prospect.`;
 }
 
 function parseDecision(obj: Record<string, unknown>): WorkerDecision {
@@ -83,8 +99,8 @@ function parseDecision(obj: Record<string, unknown>): WorkerDecision {
       typeof obj.deliverable === "string" ? obj.deliverable : "";
     const rawFee = Number(obj.feeCents);
     const feeCents = Number.isFinite(rawFee)
-      ? Math.max(50, Math.min(500, rawFee))
-      : 200;
+      ? Math.max(2000, Math.min(5000, rawFee))
+      : randomFeeCents();
     return { decision, reasoning, deliverable, feeCents };
   }
 
@@ -144,6 +160,10 @@ export async function evaluateJob(job: {
   }
 
   // ── 3. Mock (no keys configured) ──────────────────────────────────────────
-  // Simulate 70/30 fulfil/skip for demo variety
-  return Math.random() > 0.3 ? MOCK_FULFIL : MOCK_SKIP;
+  // For Companies House leads, almost always fulfil — every deadline is actionable
+  const mockResult = Math.random() > 0.1 ? { ...MOCK_FULFIL } : MOCK_SKIP;
+  if (mockResult.decision === "fulfil") {
+    mockResult.feeCents = randomFeeCents();
+  }
+  return mockResult;
 }
