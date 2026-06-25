@@ -138,9 +138,11 @@ export async function fetchCompaniesHouseDemand(): Promise<DemandItem[]> {
   };
 
   try {
-    // Step 1: Advanced search for a batch of active companies
+    // Step 1: Advanced search for a large batch of active companies.
+    // size=100 gives enough breadth that filtering by accounts.next_due / overdue
+    // reliably yields multiple real results per call.
     const searchRes = await fetch(
-      `${CH_BASE}/advanced-search/companies?status=active&size=20`,
+      `${CH_BASE}/advanced-search/companies?status=active&size=100`,
       { headers, cache: "no-store" }
     );
 
@@ -297,8 +299,9 @@ export function nextCuratedItem(): DemandItem {
 /**
  * Unified demand fetch for the Scout.
  *
- * Returns live Companies House leads (companies with imminent/overdue filings)
- * plus one fresh curated item as the per-tick reliability guarantee.
+ * Returns live Companies House leads (companies with imminent/overdue filings).
+ * Curated items are used ONLY as a last resort when the live CH fetch returns
+ * zero results (e.g. CH_API_KEY missing or API unreachable).
  *
  * Never throws. Falls back to curated-only on any error.
  */
@@ -311,6 +314,12 @@ export async function fetchDemand(): Promise<DemandItem[]> {
     live = [];
   }
 
-  const curated = nextCuratedItem();
-  return [...live, curated];
+  if (live.length > 0) {
+    // Real data available — never mix in curated
+    return live;
+  }
+
+  // Last resort: CH returned nothing (no key, API down, or zero matches)
+  console.warn("[demand] CH returned no results — falling back to curated");
+  return [nextCuratedItem()];
 }

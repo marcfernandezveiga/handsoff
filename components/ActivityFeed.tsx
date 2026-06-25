@@ -7,20 +7,20 @@ interface Props {
   events: AgentEvent[];
 }
 
-const ROLE_CONFIG: Record<AgentRole, { color: string; label: string }> = {
-  scout:   { color: '#3b82f6', label: 'Scout'   },
-  worker:  { color: '#a855f7', label: 'Worker'  },
-  finance: { color: '#00e676', label: 'Finance' },
-  manager: { color: '#f59e0b', label: 'Manager' },
+const ROLE_LABEL: Record<AgentRole, string> = {
+  scout:   'Scout',
+  worker:  'Worker',
+  finance: 'Finance',
+  manager: 'Manager',
 };
 
 function timeAgo(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 60) return `${secs}s`;
+  if (secs < 60) return `${secs}s ago`;
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
+  if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
-  return `${hrs}h`;
+  return `${hrs}h ago`;
 }
 
 export function ActivityFeed({ events }: Props) {
@@ -38,88 +38,79 @@ export function ActivityFeed({ events }: Props) {
 
   return (
     <section className="flex flex-col min-h-0">
+      {/* Section header */}
       <div
-        className="flex items-center justify-between px-5 py-3 shrink-0"
-        style={{ borderBottom: '1px solid var(--bg-border)' }}
+        className="flex items-center justify-between px-5 py-2.5 shrink-0"
+        style={{
+          borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-surface)',
+        }}
       >
-        <span
-          className="text-xs font-semibold uppercase"
-          style={{ color: 'var(--text-muted)', letterSpacing: '0.1em' }}
-        >
-          Live Activity
+        <span className="text-xs font-semibold" style={{ color: 'var(--ink-md)' }}>
+          Live activity
         </span>
         <span
           className="text-xs font-mono"
-          style={{ color: 'var(--text-muted)' }}
+          style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
         >
-          {sorted.length} event{sorted.length !== 1 ? 's' : ''}
+          {sorted.length} events
         </span>
       </div>
 
+      {/* Events list */}
       <div className="overflow-y-auto">
         {sorted.length === 0 && (
           <div
-            className="flex flex-col items-center justify-center gap-2 h-28 text-sm"
-            style={{ color: 'var(--text-muted)' }}
+            className="flex items-center justify-center h-24 text-xs"
+            style={{ color: 'var(--ink-lo)' }}
           >
-            <span style={{ fontSize: 20, opacity: 0.3 }}>◌</span>
-            <span className="text-xs">Waiting for Companies House activity</span>
+            Waiting for Companies House activity
           </div>
         )}
 
         {sorted.map((event) => {
           const fresh = isNew(event.id);
-          const cfg = ROLE_CONFIG[event.agent];
 
           return (
             <div
               key={event.id}
-              className={`flex items-start gap-3 px-5 py-3 border-b ${fresh ? 'animate-slide-in' : ''}`}
-              style={{ borderColor: 'var(--bg-border)' }}
+              className={`event-row flex items-start gap-4 px-5 py-3 ${fresh ? 'animate-slide-in' : ''}`}
+              style={{ borderBottom: '1px solid var(--border-subtle)' }}
             >
-              {/* Role color bar */}
-              <div
-                className="shrink-0 mt-1 rounded-full"
-                style={{ width: 3, height: 28, background: cfg.color, opacity: 0.8 }}
-              />
+              {/* Agent role tag */}
+              <span
+                className="shrink-0 text-xs font-mono font-semibold tabular-nums mt-px"
+                style={{
+                  color: 'var(--ink-lo)',
+                  minWidth: '3.5rem',
+                  fontFamily: 'var(--font-geist-mono)',
+                }}
+              >
+                {ROLE_LABEL[event.agent]}
+              </span>
 
+              {/* Content */}
               <div className="min-w-0 flex-1">
-                {/* Agent tag + action */}
-                <div className="flex items-baseline gap-2 mb-0.5">
-                  <span
-                    className="text-xs font-bold shrink-0"
-                    style={{ color: cfg.color }}
-                  >
-                    {cfg.label}
-                  </span>
-                  <span
-                    className="text-xs font-medium leading-snug"
-                    style={{ color: 'var(--text-primary)' }}
-                  >
-                    {event.action}
-                  </span>
-                </div>
-
+                <span
+                  className="text-xs font-medium"
+                  style={{ color: 'var(--ink-hi)' }}
+                >
+                  {event.action}
+                </span>
                 {event.detail && (
                   <p
-                    className="text-xs leading-relaxed truncate"
-                    style={{
-                      color: 'var(--text-muted)',
-                      fontFamily: 'var(--font-geist-mono)',
-                    }}
+                    className="mt-0.5 text-xs leading-relaxed truncate"
+                    style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
                   >
                     {event.detail}
                   </p>
                 )}
               </div>
 
+              {/* Timestamp */}
               <span
-                className="text-xs shrink-0 tabular-nums pt-0.5"
-                style={{
-                  color: 'var(--text-muted)',
-                  fontFamily: 'var(--font-geist-mono)',
-                  opacity: 0.7,
-                }}
+                className="shrink-0 text-xs font-mono tabular-nums pt-px"
+                style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
               >
                 {timeAgo(event.created_at)}
               </span>

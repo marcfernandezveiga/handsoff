@@ -142,15 +142,12 @@ export async function runScout(): Promise<void> {
     detail: "Scout checking Companies House for companies with imminent or overdue filing deadlines.",
   });
 
-  // fetchDemand returns live Companies House leads plus one curated fallback item
-  // (last in the array), so there is always at least one candidate. We cap live
-  // intake per tick so the queue grows steadily rather than dumping dozens at once,
-  // while always keeping the trailing curated item as the reliability guarantee.
+  // fetchDemand returns live Companies House leads (real data).
+  // Curated items only appear when CH returns zero results (API down / no key).
+  // Cap intake per tick so the queue grows steadily rather than dumping dozens at once.
   const SCOUT_INTAKE = 6;
   const all = await fetchDemand();
-  const curated = all[all.length - 1]; // fetchDemand always appends one curated item
-  const hnSlice = all.slice(0, Math.max(0, all.length - 1)).slice(0, SCOUT_INTAKE - 1);
-  const posts = [...hnSlice, curated];
+  const posts = all.slice(0, SCOUT_INTAKE);
 
   if (posts.length === 0) {
     await logEvent({
@@ -340,7 +337,7 @@ export async function runWorker(): Promise<void> {
           mockJobs[idx] = {
             ...mockJobs[idx],
             status:
-              result.decision === "fulfil" ? "awaiting_approval" : "skipped",
+              result.decision === "fulfil" ? "approved" : "skipped",
             reasoning: result.reasoning,
             deliverable: result.deliverable ?? null,
             fee_cents: result.decision === "fulfil" ? finalFeeCents : null,
@@ -353,7 +350,7 @@ export async function runWorker(): Promise<void> {
           .from("jobs")
           .update({
             status:
-              result.decision === "fulfil" ? "awaiting_approval" : "skipped",
+              result.decision === "fulfil" ? "approved" : "skipped",
             reasoning: result.reasoning,
             deliverable: result.deliverable ?? null,
             fee_cents: result.decision === "fulfil" ? finalFeeCents : null,
@@ -367,7 +364,7 @@ export async function runWorker(): Promise<void> {
         await logEvent({
           agent: "worker",
           action: "fulfilled",
-          detail: `Drafted deliverable. Fee: $${(finalFeeCents / 100).toFixed(2)}${priceNote}. Awaiting human approval. Reason: ${result.reasoning}`,
+          detail: `Drafted deliverable. Fee: $${(finalFeeCents / 100).toFixed(2)}${priceNote}. Billing automatically. Reason: ${result.reasoning}`,
           job_id: job.id,
         });
       } else {
@@ -457,6 +454,25 @@ export async function runFinance(jobId: string): Promise<void> {
     detail: `Invoice ${invoice.invoiceId} created${simNote}. $${((job.fee_cents ?? 0) / 100).toFixed(2)} collected.`,
     job_id: jobId,
   });
+}
+
+// Auto-bill: charge every job in 'approved' state. Fully autonomous, no human gate.
+export async function runFinanceQueue(): Promise<void> {
+  let approvedIds: string[] = [];
+  if (!hasSupabaseEnv) {
+    approvedIds = mockJobs.filter((j) => j.status === "approved").map((j) => j.id);
+  } else {
+    const db = createServiceClient();
+    const { data } = await db.from("jobs").select("id").eq("status", "approved");
+    approvedIds = ((data ?? []) as { id: string }[]).map((r) => r.id);
+  }
+  for (const id of approvedIds) {
+    try {
+      await runFinance(id);
+    } catch (err) {
+      console.warn("[finance-queue] error charging", id, err);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

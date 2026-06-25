@@ -3,7 +3,7 @@
 //
 // Runs one Scout + Worker cycle. Safe to call repeatedly (idempotent-ish).
 
-import { runScout, runWorker } from "@/lib/agents";
+import { runScout, runWorker, runFinanceQueue } from "@/lib/agents";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ async function runTick(): Promise<Response> {
   try {
     await runScout();
     await runWorker();
+    await runFinanceQueue(); // fully autonomous: bill everything the worker approved this cycle
 
     return Response.json({ ok: true });
   } catch (err) {

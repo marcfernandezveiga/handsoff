@@ -1,24 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { DashboardPayload, Job } from '@/lib/types';
+import type { DashboardPayload } from '@/lib/types';
 import { Header } from './Header';
-import { AgentRoster } from './AgentRoster';
 import { ActivityFeed } from './ActivityFeed';
-import { ApprovalQueue } from './ApprovalQueue';
+import { AuditFeed } from './AuditFeed';
 import { JobsTable } from './JobsTable';
 import { LearningsPanel } from './LearningsPanel';
 
 interface Props {
   initial: DashboardPayload;
 }
-
-const STAT_CONFIGS = [
-  { label: 'Detected',  key: 'found'    as const, color: 'var(--accent-blue)'  },
-  { label: 'Pending',   key: 'awaiting' as const, color: 'var(--accent-amber)' },
-  { label: 'Billed',    key: 'charged'  as const, color: 'var(--accent-green)' },
-  { label: 'Skipped',   key: 'skipped'  as const, color: 'var(--text-muted)'   },
-];
 
 export function Dashboard({ initial }: Props) {
   const [data, setData] = useState<DashboardPayload>(initial);
@@ -58,22 +50,10 @@ export function Dashboard({ initial }: Props) {
     return () => clearInterval(tickInterval);
   }, []);
 
-  // Optimistic update when a job is approved or rejected in the approval queue
-  function handleApprovalUpdate(id: string, status: 'approved' | 'rejected') {
-    setData((prev) => ({
-      ...prev,
-      jobs: prev.jobs.map((j): Job =>
-        j.id === id ? { ...j, status: status === 'approved' ? 'approved' : 'skipped' } : j
-      ),
-    }));
-  }
-
-  const awaitingJobs = data.jobs.filter((j) => j.status === 'awaiting_approval');
-
   return (
     <div
       className="flex flex-col min-h-screen"
-      style={{ background: 'var(--bg-base)', color: 'var(--text-primary)' }}
+      style={{ background: 'var(--bg-base)', color: 'var(--ink-hi)' }}
     >
       <Header
         revenueCents={data.revenueCents}
@@ -81,120 +61,155 @@ export function Dashboard({ initial }: Props) {
         tickInFlight={tickInFlight}
       />
 
-      <div className="flex flex-1 min-h-0 overflow-hidden" style={{ minHeight: 'calc(100vh - 73px)' }}>
-        {/* Left rail: agent roster */}
-        <AgentRoster events={data.events} />
+      {/* Pipeline stats strip */}
+      <div
+        className="flex shrink-0 animate-fade-in"
+        style={{ borderBottom: '1px solid var(--border)', animationDelay: '40ms' }}
+      >
+        <PipelineStat label="Detected"  value={data.counts.found}    />
+        <PipelineStat label="Billed"    value={data.counts.charged}  accent />
+        <PipelineStat label="Skipped"   value={data.counts.skipped}  muted />
+        {data.counts.awaiting > 0 && (
+          <PipelineStat label="Pending"   value={data.counts.awaiting} warn />
+        )}
+      </div>
 
-        {/* Center: activity feed + jobs table */}
+      {/* Main 2-column layout */}
+      <div
+        className="flex flex-1 min-h-0"
+        style={{ minHeight: 'calc(100vh - 94px)' }}
+      >
+        {/* Center: activity + companies */}
         <main className="flex flex-col flex-1 min-w-0 overflow-y-auto">
           <ActivityFeed events={data.events} />
 
-          {/* Jobs section */}
-          <section className="animate-fade-up" style={{ animationDelay: '80ms' }}>
-            <div
-              className="flex items-center justify-between px-5 py-2.5"
-              style={{
-                color: 'var(--text-muted)',
-                borderBottom: '1px solid var(--bg-border)',
-                borderTop: '1px solid var(--bg-border)',
-              }}
-            >
-              <span
-                className="text-xs font-semibold uppercase"
-                style={{ letterSpacing: '0.1em' }}
-              >
-                Companies
-              </span>
-              <span className="text-xs font-mono" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
-                {data.jobs.length} total
-              </span>
-            </div>
+          {/* Companies section */}
+          <section className="animate-fade-up" style={{ animationDelay: '60ms' }}>
+            <SectionLabel
+              label="Companies"
+              meta={`${data.jobs.length} total`}
+            />
             <JobsTable jobs={data.jobs} />
           </section>
         </main>
 
-        {/* Right rail: stats + approvals + learnings */}
+        {/* Right rail */}
         <aside
-          className="w-80 shrink-0 flex flex-col overflow-y-auto"
-          style={{ borderLeft: '1px solid var(--bg-border)' }}
+          className="w-72 shrink-0 flex flex-col overflow-y-auto"
+          style={{ borderLeft: '1px solid var(--border)' }}
         >
-          {/* Stats strip */}
-          <div
-            className="grid grid-cols-2 gap-px animate-fade-in"
-            style={{ borderBottom: '1px solid var(--bg-border)', background: 'var(--bg-border)' }}
-          >
-            {STAT_CONFIGS.map(({ label, key, color }) => (
-              <div
-                key={label}
-                className="px-4 py-3.5 flex flex-col gap-1"
-                style={{ background: 'var(--bg-card)' }}
-              >
-                <span className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-                  {label}
-                </span>
-                <span
-                  className="text-2xl font-bold font-mono leading-none tabular-nums"
-                  style={{ color, fontFamily: 'var(--font-geist-mono)' }}
-                >
-                  {data.counts[key]}
-                </span>
-              </div>
-            ))}
+          {/* Autonomous action log */}
+          <div>
+            <SectionLabel
+              label="Recent actions"
+              meta="autonomous"
+            />
+            <AuditFeed jobs={data.jobs} />
           </div>
 
-          {/* Approvals section header */}
-          <div
-            className="flex items-center gap-2 px-4 py-2.5"
-            style={{
-              color: 'var(--text-muted)',
-              borderBottom: '1px solid var(--bg-border)',
-            }}
-          >
-            <span
-              className="text-xs font-semibold uppercase"
-              style={{ letterSpacing: '0.1em' }}
-            >
-              Approvals
-            </span>
-            {awaitingJobs.length > 0 && (
-              <span
-                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold animate-pulse-dot"
-                style={{ background: 'var(--accent-amber)', color: '#0a0a0f' }}
-              >
-                {awaitingJobs.length}
-              </span>
-            )}
-          </div>
-
-          <ApprovalQueue jobs={data.jobs} onUpdate={handleApprovalUpdate} />
-
-          {/* Learning panel */}
+          {/* Intelligence panel */}
           {data.learnings && (
-            <>
-              <div
-                className="flex items-center gap-2 px-4 py-2.5"
-                style={{
-                  color: 'var(--text-muted)',
-                  borderBottom: '1px solid var(--bg-border)',
-                  borderTop: '1px solid var(--bg-border)',
-                }}
-              >
-                <span
-                  className="text-xs font-semibold uppercase"
-                  style={{ color: '#7c3aed', letterSpacing: '0.1em' }}
-                >
-                  Agent intelligence
-                </span>
-                <span
-                  className="animate-pulse-dot inline-block w-1.5 h-1.5 rounded-full"
-                  style={{ background: '#7c3aed' }}
-                />
-              </div>
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              <SectionLabel label="Intelligence" />
               <LearningsPanel learnings={data.learnings} />
-            </>
+            </div>
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+/* ─── PipelineStat ─────────────────────────────────────────────────────────── */
+
+function PipelineStat({
+  label,
+  value,
+  accent,
+  warn,
+  muted,
+}: {
+  label: string;
+  value: number;
+  accent?: boolean;
+  warn?: boolean;
+  muted?: boolean;
+}) {
+  const color = accent
+    ? 'var(--green)'
+    : warn
+      ? 'var(--amber)'
+      : muted
+        ? 'var(--ink-lo)'
+        : 'var(--ink-md)';
+
+  return (
+    <div
+      className="flex-1 flex flex-col gap-1 px-5 py-3"
+      style={{ borderRight: '1px solid var(--border)' }}
+    >
+      <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+        {label}
+      </span>
+      <span
+        className="font-mono text-xl font-bold tabular-nums leading-none stat-tick"
+        style={{ color, fontFamily: 'var(--font-geist-mono)' }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* ─── SectionLabel ─────────────────────────────────────────────────────────── */
+
+function SectionLabel({
+  label,
+  meta,
+  badge,
+  warn,
+}: {
+  label: string;
+  meta?: string;
+  badge?: number;
+  warn?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between px-5 py-2.5"
+      style={{
+        borderBottom: '1px solid var(--border)',
+        background: 'var(--bg-surface)',
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="text-xs font-semibold"
+          style={{ color: 'var(--ink-md)' }}
+        >
+          {label}
+        </span>
+        {badge !== undefined && badge > 0 && (
+          <span
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold animate-pulse-dot"
+            style={{
+              background: warn ? 'var(--amber)' : 'var(--green)',
+              color: 'var(--bg-base)',
+              fontSize: '10px',
+            }}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+      {meta && (
+        <span
+          className="text-xs font-mono"
+          style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
+        >
+          {meta}
+        </span>
+      )}
     </div>
   );
 }

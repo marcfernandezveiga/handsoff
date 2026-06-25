@@ -8,16 +8,19 @@ interface Props {
   tickInFlight: boolean;
 }
 
-export function Header({ revenueCents, jobsDone, tickInFlight }: Props) {
-  const dollars = (revenueCents / 100).toFixed(2);
+function formatRevenue(cents: number): string {
+  const pounds = (cents / 100).toFixed(2);
+  return `£${pounds}`;
+}
 
+export function Header({ revenueCents, jobsDone, tickInFlight }: Props) {
   const prevRevenue = useRef(revenueCents);
   const [bumped, setBumped] = useState(false);
 
   useEffect(() => {
     if (revenueCents > prevRevenue.current) {
       setBumped(true);
-      const t = setTimeout(() => setBumped(false), 700);
+      const t = setTimeout(() => setBumped(false), 600);
       prevRevenue.current = revenueCents;
       return () => clearTimeout(t);
     }
@@ -27,104 +30,93 @@ export function Header({ revenueCents, jobsDone, tickInFlight }: Props) {
   return (
     <header
       style={{
-        background: 'var(--bg-card)',
-        borderBottom: '1px solid var(--bg-border)',
+        background: 'var(--bg-surface)',
+        borderBottom: '1px solid var(--border)',
       }}
-      className="px-6 py-4 flex items-center gap-8 shrink-0"
+      className="px-6 h-14 flex items-center gap-6 shrink-0"
     >
-      {/* Brand + status */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="flex flex-col gap-0.5">
-          <h1
-            style={{ color: 'var(--text-primary)', letterSpacing: '-0.02em' }}
-            className="text-lg font-semibold leading-none whitespace-nowrap"
-          >
-            Hands Off
-          </h1>
+      {/* Brand */}
+      <div className="flex items-center gap-2.5 shrink-0">
+        {/* Live indicator */}
+        <div className="relative flex items-center justify-center w-3 h-3">
           <span
-            className="text-xs font-medium"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            Companies House late-filing monitor
-          </span>
+            className="animate-pulse-ring absolute inset-0 rounded-full"
+            style={{ background: 'var(--green)', opacity: 0.3 }}
+          />
+          <span
+            className="animate-pulse-dot relative inline-block w-1.5 h-1.5 rounded-full"
+            style={{ background: 'var(--green)' }}
+          />
         </div>
 
-        <div className="h-8 w-px" style={{ background: 'var(--bg-border)' }} />
+        <span
+          style={{ color: 'var(--ink-hi)', letterSpacing: '-0.02em' }}
+          className="text-sm font-semibold leading-none"
+        >
+          Hands Off
+        </span>
 
-        {/* Live status */}
-        <div className="flex items-center gap-2">
-          <div className="relative flex items-center justify-center w-3 h-3">
-            <span
-              className="animate-pulse-ring absolute inset-0 rounded-full"
-              style={{ background: 'var(--accent-green)', opacity: 0.4 }}
-            />
-            <span
-              className="animate-pulse-dot relative inline-block w-2 h-2 rounded-full"
-              style={{ background: 'var(--accent-green)' }}
-            />
-          </div>
-          <span className="text-xs font-semibold" style={{ color: 'var(--accent-green)' }}>
-            Running
-          </span>
-        </div>
+        <span
+          className="text-xs px-1.5 py-0.5 rounded font-medium"
+          style={{
+            background: 'var(--green-dim)',
+            color: 'var(--green)',
+            border: '1px solid var(--green-border)',
+          }}
+        >
+          running
+        </span>
 
         {tickInFlight && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 ml-1">
             <span
-              className="animate-spin-slow inline-block w-3 h-3 rounded-full"
+              className="animate-spin-slow inline-block w-2.5 h-2.5 rounded-full"
               style={{
-                border: '1.5px solid var(--text-muted)',
-                borderTopColor: 'transparent',
+                border: '1.5px solid var(--border)',
+                borderTopColor: 'var(--ink-lo)',
               }}
             />
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              agents active
+            <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+              processing
             </span>
           </div>
         )}
       </div>
 
-      {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Companies Billed - secondary metric */}
-      <div className="text-right">
-        <div
-          className="text-xs font-medium uppercase tracking-widest mb-1"
-          style={{ color: 'var(--text-muted)', letterSpacing: '0.1em' }}
-        >
-          Companies Billed
-        </div>
-        <div
-          className="font-mono text-2xl font-bold leading-none tabular-nums"
-          style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-geist-mono)' }}
+      {/* Billed count -- secondary */}
+      <div
+        className="flex items-center gap-2.5"
+        style={{ borderRight: '1px solid var(--border)', paddingRight: '1.5rem' }}
+      >
+        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+          Companies billed
+        </span>
+        <span
+          className="font-mono text-sm font-semibold tabular-nums"
+          style={{ color: 'var(--ink-md)', fontFamily: 'var(--font-geist-mono)' }}
         >
           {jobsDone}
-        </div>
+        </span>
       </div>
 
-      <div className="h-10 w-px" style={{ background: 'var(--bg-border)' }} />
-
-      {/* Revenue - hero metric */}
-      <div className="text-right">
-        <div
-          className="text-xs font-semibold uppercase mb-1.5"
-          style={{ color: 'var(--text-muted)', letterSpacing: '0.12em' }}
-        >
+      {/* Revenue -- the headline */}
+      <div className="flex items-baseline gap-2 shrink-0">
+        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
           Revenue
-        </div>
-        <div
-          className={`font-mono font-bold leading-none tabular-nums ${bumped ? 'revenue-bump' : ''}`}
+        </span>
+        <span
+          className={`font-mono font-bold tabular-nums leading-none ${bumped ? 'revenue-bump' : ''}`}
           style={{
-            color: 'var(--accent-green)',
+            color: 'var(--green)',
             fontFamily: 'var(--font-geist-mono)',
-            fontSize: 'clamp(2rem, 4vw, 3.25rem)',
-            letterSpacing: '-0.02em',
-            textShadow: bumped ? '0 0 40px rgba(0, 230, 118, 0.5)' : undefined,
+            fontSize: 'clamp(1.25rem, 2vw, 1.75rem)',
+            letterSpacing: '-0.03em',
           }}
         >
-          ${dollars}
-        </div>
+          {formatRevenue(revenueCents)}
+        </span>
       </div>
     </header>
   );
