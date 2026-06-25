@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import type { Job, JobStatus } from '@/lib/types';
+import { LinkifiedText, extractFirstUrl } from '@/components/LinkifiedText';
 
 interface Props {
   jobs: Job[];
@@ -112,7 +113,7 @@ export function JobsTable({ jobs }: Props) {
               { label: 'Penalty at risk', width: '9rem' },
               { label: 'Fee earned', width: '8rem' },
               { label: 'Age', width: '4.5rem' },
-              { label: '', width: '6rem' }, // expand column
+              { label: '', width: '8rem' }, // expand + pay column
             ].map((col) => (
               <th
                 key={col.label}
@@ -222,42 +223,72 @@ export function JobsTable({ jobs }: Props) {
                     </span>
                   </td>
 
-                  {/* Expand affordance */}
-                  <td className="px-5 py-3.5 whitespace-nowrap text-right">
-                    {hasReminder && (
-                      <button
-                        className="text-xs font-medium flex items-center gap-1.5 ml-auto"
-                        style={{
-                          color: isExpanded ? 'var(--blue)' : 'var(--ink-md)',
-                          background: isExpanded ? 'var(--blue-dim)' : 'var(--bg-raised)',
-                          border: `1px solid ${isExpanded ? 'var(--blue-border)' : 'var(--border)'}`,
-                          borderRadius: 'var(--radius-sm)',
-                          padding: '0.3rem 0.6rem',
-                          cursor: 'pointer',
-                          transition: 'all 120ms ease-out',
-                          outline: 'none',
-                          whiteSpace: 'nowrap',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setExpandedId(isExpanded ? null : job.id);
-                        }}
-                        aria-expanded={isExpanded}
-                        aria-label={isExpanded ? 'Hide reminder' : 'View reminder'}
-                      >
-                        <span
+                  {/* Expand affordance + Pay button */}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex flex-col items-end gap-1.5">
+                      {/* Pay button — only for charged rows with a PayPal URL */}
+                      {job.status === 'charged' && job.deliverable && (() => {
+                        const payUrl = extractFirstUrl(job.deliverable);
+                        return payUrl ? (
+                          <a
+                            href={payUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-semibold flex items-center gap-1 ml-auto"
+                            style={{
+                              color: 'var(--bg-surface)',
+                              background: 'var(--green)',
+                              border: '1px solid var(--green-border)',
+                              borderRadius: 'var(--radius-sm)',
+                              padding: '0.3rem 0.75rem',
+                              textDecoration: 'none',
+                              whiteSpace: 'nowrap',
+                              transition: 'filter 120ms ease-out',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.filter = 'brightness(0.9)'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.filter = ''; }}
+                          >
+                            Pay invoice ↗
+                          </a>
+                        ) : null;
+                      })()}
+
+                      {hasReminder && (
+                        <button
+                          className="text-xs font-medium flex items-center gap-1.5 ml-auto"
                           style={{
-                            display: 'inline-block',
-                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                            transition: 'transform 150ms ease-out',
-                            fontSize: '0.55rem',
+                            color: isExpanded ? 'var(--blue)' : 'var(--ink-md)',
+                            background: isExpanded ? 'var(--blue-dim)' : 'var(--bg-raised)',
+                            border: `1px solid ${isExpanded ? 'var(--blue-border)' : 'var(--border)'}`,
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '0.3rem 0.6rem',
+                            cursor: 'pointer',
+                            transition: 'all 120ms ease-out',
+                            outline: 'none',
+                            whiteSpace: 'nowrap',
                           }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedId(isExpanded ? null : job.id);
+                          }}
+                          aria-expanded={isExpanded}
+                          aria-label={isExpanded ? 'Hide reminder' : 'View reminder'}
                         >
-                          ▶
-                        </span>
-                        {isExpanded ? 'Hide' : 'See email'}
-                      </button>
-                    )}
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                              transition: 'transform 150ms ease-out',
+                              fontSize: '0.55rem',
+                            }}
+                          >
+                            ▶
+                          </span>
+                          {isExpanded ? 'Hide' : 'See email'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
 
@@ -306,7 +337,8 @@ export function JobsTable({ jobs }: Props) {
                             >
                               Reminder email the agent wrote
                             </p>
-                            <pre
+                            <LinkifiedText
+                              text={job.deliverable}
                               className="text-xs leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto rounded-md p-4"
                               style={{
                                 fontFamily: 'var(--font-geist-mono)',
@@ -314,9 +346,7 @@ export function JobsTable({ jobs }: Props) {
                                 background: 'var(--bg-raised)',
                                 border: '1px solid var(--border)',
                               }}
-                            >
-                              {job.deliverable}
-                            </pre>
+                            />
                           </div>
                         )}
                       </div>

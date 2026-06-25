@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { Job, JobStatus } from '@/lib/types';
+import { LinkifiedText } from '@/components/LinkifiedText';
 
 interface Props {
   jobs: Job[];
@@ -225,7 +226,8 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
           >
             Reminder email the agent wrote:
           </p>
-          <pre
+          <LinkifiedText
+            text={job.deliverable}
             className="text-xs leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto rounded-lg p-4"
             style={{
               fontFamily: 'var(--font-geist-mono)',
@@ -233,9 +235,7 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
               background: 'var(--bg-raised)',
               border: '1px solid var(--border)',
             }}
-          >
-            {job.deliverable}
-          </pre>
+          />
         </div>
       )}
     </div>
