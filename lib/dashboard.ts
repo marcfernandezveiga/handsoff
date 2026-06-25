@@ -19,12 +19,13 @@ export async function getDashboardData(): Promise<DashboardPayload> {
         categories: [],
         recentAdjustments: [],
       },
+      paused: false,
     };
   }
 
   const db = createServiceClient();
 
-  const [jobsRes, eventsRes, learnings] = await Promise.all([
+  const [jobsRes, eventsRes, learnings, controlRes] = await Promise.all([
     db.from("jobs").select("*").order("created_at", { ascending: false }),
     db
       .from("events")
@@ -32,10 +33,12 @@ export async function getDashboardData(): Promise<DashboardPayload> {
       .order("created_at", { ascending: false })
       .limit(100),
     getLearningsPayload(),
+    db.from("agent_control").select("paused").eq("id", 1).maybeSingle(),
   ]);
 
   const jobs = (jobsRes.data ?? []) as Job[];
   const events = (eventsRes.data ?? []) as AgentEvent[];
+  const paused = (controlRes.data as { paused: boolean } | null)?.paused ?? false;
 
   const revenueCents = jobs
     .filter((j) => j.status === "charged")
@@ -52,5 +55,6 @@ export async function getDashboardData(): Promise<DashboardPayload> {
       skipped: jobs.filter((j) => j.status === "skipped").length,
     },
     learnings,
+    paused,
   };
 }

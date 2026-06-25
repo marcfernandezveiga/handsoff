@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 interface Props {
   revenueCents: number;
   jobsDone: number;
+  paused: boolean;
+  onTogglePause: () => void;
 }
 
 function formatRevenue(cents: number): string {
@@ -12,7 +14,7 @@ function formatRevenue(cents: number): string {
   return `£${pounds}`;
 }
 
-export function Header({ revenueCents, jobsDone }: Props) {
+export function Header({ revenueCents, jobsDone, paused, onTogglePause }: Props) {
   const prevRevenue = useRef(revenueCents);
   const [bumped, setBumped] = useState(false);
 
@@ -37,15 +39,24 @@ export function Header({ revenueCents, jobsDone }: Props) {
     >
       {/* Brand */}
       <div className="flex items-center gap-3 shrink-0">
-        {/* Live indicator */}
+        {/* Live indicator — amber when paused, green when running */}
         <div className="relative flex items-center justify-center w-4 h-4">
+          {!paused && (
+            <span
+              className="animate-pulse-ring absolute inset-0 rounded-full"
+              style={{ background: 'var(--green)', opacity: 0.35 }}
+            />
+          )}
           <span
-            className="animate-pulse-ring absolute inset-0 rounded-full"
-            style={{ background: 'var(--green)', opacity: 0.35 }}
-          />
-          <span
-            className="animate-pulse-dot relative inline-block w-2 h-2 rounded-full"
-            style={{ background: 'var(--green)' }}
+            className={paused ? '' : 'animate-pulse-dot'}
+            style={{
+              display: 'inline-block',
+              width: '0.5rem',
+              height: '0.5rem',
+              borderRadius: '9999px',
+              background: paused ? 'var(--amber)' : 'var(--green)',
+              position: 'relative',
+            }}
           />
         </div>
 
@@ -56,25 +67,64 @@ export function Header({ revenueCents, jobsDone }: Props) {
             Hands Off
           </span>
           <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-            AI agent running on its own
+            {paused ? 'Agent paused' : 'AI agent running on its own'}
           </span>
         </div>
 
         <span
           className="text-xs px-2 py-0.5 rounded-full font-semibold"
-          style={{
-            background: 'var(--green-label)',
-            color: 'var(--green)',
-            border: '1px solid var(--green-border)',
-          }}
+          style={
+            paused
+              ? {
+                  background: 'var(--amber-label)',
+                  color: 'var(--amber)',
+                  border: '1px solid var(--amber-border)',
+                }
+              : {
+                  background: 'var(--green-label)',
+                  color: 'var(--green)',
+                  border: '1px solid var(--green-border)',
+                }
+          }
         >
-          live
+          {paused ? 'paused' : 'live'}
         </span>
-
-
       </div>
 
       <div className="flex-1" />
+
+      {/* Pause / Resume control */}
+      <button
+        className="btn-ghost"
+        onClick={onTogglePause}
+        aria-label={paused ? 'Resume agent' : 'Pause agent'}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.375rem',
+          padding: '0.375rem 0.875rem',
+          borderRadius: 'var(--radius-md)',
+          border: `1px solid ${paused ? 'var(--amber-border)' : 'var(--border)'}`,
+          background: paused ? 'var(--amber-dim)' : 'transparent',
+          color: paused ? 'var(--amber)' : 'var(--ink-md)',
+          fontSize: '0.8125rem',
+          fontWeight: 600,
+          cursor: 'pointer',
+          outline: 'none',
+        }}
+      >
+        {paused ? (
+          <>
+            <span style={{ fontSize: '0.875rem' }}>&#9654;</span>
+            Resume
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: '0.875rem' }}>&#10074;&#10074;</span>
+            Pause
+          </>
+        )}
+      </button>
 
       {/* Companies billed -- secondary */}
       <div

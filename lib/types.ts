@@ -54,4 +54,5 @@ export interface DashboardPayload {
   revenueCents: number;
   counts: { found: number; awaiting: number; charged: number; skipped: number };
   learnings: LearningsPayload;
+  paused: boolean;
 }

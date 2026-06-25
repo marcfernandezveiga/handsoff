@@ -25,6 +25,7 @@ export async function GET(): Promise<Response> {
         categories: [],
         recentAdjustments: [],
       },
+      paused: false,
     };
     return Response.json(empty);
   }

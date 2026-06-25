@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useOptimistic, useTransition, useEffect, useState } from 'react';
 import type { DashboardPayload, JobStatus } from '@/lib/types';
 import { Header } from './Header';
 import { ActivityFeed } from './ActivityFeed';
@@ -25,6 +25,10 @@ const TAB_CONFIG: { id: TabFilter; label: string; emoji: string; description: st
 export function Dashboard({ initial }: Props) {
   const [data, setData] = useState<DashboardPayload>(initial);
   const [activeTab, setActiveTab] = useState<TabFilter>('all');
+  const [isPending, startTransition] = useTransition();
+
+  // Optimistic paused state — flips instantly on click, syncs from poll
+  const [optimisticPaused, setOptimisticPaused] = useOptimistic(data.paused);
 
   // Poll the dashboard endpoint every 5s — read-only, no agent tick
   useEffect(() => {
@@ -41,6 +45,29 @@ export function Dashboard({ initial }: Props) {
 
     return () => clearInterval(pollInterval);
   }, []);
+
+  function handleTogglePause() {
+    const next = !optimisticPaused;
+    startTransition(async () => {
+      setOptimisticPaused(next);
+      try {
+        const res = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paused: next }),
+        });
+        if (res.ok) {
+          const { paused } = await res.json() as { paused: boolean };
+          // Immediately reconcile data so the next poll gets the real value
+          setData((prev) => ({ ...prev, paused }));
+        }
+      } catch {
+        // Poll will reconcile on its next tick
+      }
+    });
+  }
+
+  const paused = optimisticPaused;
 
   // Derive the count for each tab so we can show it in the button
   const tabCounts: Record<TabFilter, number> = {
@@ -72,7 +99,48 @@ export function Dashboard({ initial }: Props) {
       <Header
         revenueCents={data.revenueCents}
         jobsDone={data.counts.charged}
+        paused={paused}
+        onTogglePause={handleTogglePause}
       />
+
+      {/* Paused banner — visible only when agent is stopped */}
+      {paused && (
+        <div
+          className="animate-fade-in"
+          role="status"
+          aria-live="polite"
+          style={{
+            background: 'var(--amber-dim)',
+            borderBottom: '1px solid var(--amber-border)',
+            padding: '0.5rem 1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          <span style={{ fontSize: '1rem' }}>⏸</span>
+          <span
+            className="text-sm font-semibold"
+            style={{ color: 'var(--amber)' }}
+          >
+            Agent is paused.
+          </span>
+          <span
+            className="text-sm"
+            style={{ color: 'var(--ink-md)' }}
+          >
+            The autonomous loop is stopped and will not process new companies until you resume it.
+          </span>
+          {isPending && (
+            <span
+              className="ml-auto text-xs"
+              style={{ color: 'var(--ink-lo)' }}
+            >
+              Updating...
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Tab filter strip */}
       <div

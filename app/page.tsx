@@ -20,6 +20,7 @@ export default async function Home() {
         categories: [],
         recentAdjustments: [],
       },
+      paused: false,
     };
   }
 
