@@ -18,6 +18,7 @@ import asyncio
 import base64
 import json
 import os
+import random
 import re
 import uuid
 from datetime import datetime, timezone
@@ -350,12 +351,16 @@ async def fetch_ch_demand() -> list:
     common_headers = {"Authorization": auth_header, "Accept": "application/json"}
 
     try:
-        # Step 1: search for active companies
+        # Step 1: search for active companies.
+        # Use a random start_index each tick so we scan a different slice of the
+        # register every minute and discover new overdue companies instead of
+        # hitting the same 50 records repeatedly.
+        start_index = random.randint(0, 8000)
         async with httpx.AsyncClient(timeout=CH_TIMEOUT) as client:
             r = await client.get(
                 f"{CH_BASE}/advanced-search/companies",
                 headers=common_headers,
-                params={"status": "active", "size": "50"},
+                params={"status": "active", "size": "50", "start_index": str(start_index)},
             )
         if not r.is_success:
             print(f"[scout] CH search failed: {r.status_code}")
@@ -747,6 +752,113 @@ async def run_worker(db: SupabaseClient):
 
 
 # ---------------------------------------------------------------------------
+# WhatsApp notifications via Wassist
+# ---------------------------------------------------------------------------
+
+WASSIST_BASE = "https://backend.wassist.app/api/v1"
+WASSIST_TIMEOUT = 10.0
+
+
+async def _get_or_create_wassist_conversation(to_number: str, api_key: str) -> Optional[str]:
+    """
+    Ensure a Wassist conversation exists for `to_number`.
+    Returns the conversation ID, or None on any error.
+
+    Wassist needs a linked sender number on the account. If none is configured
+    (free tier), conversation creation will fail and we log it.
+    """
+    headers = {
+        "X-API-Key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    # First, look for an existing conversation with this contact.
+    try:
+        async with httpx.AsyncClient(timeout=WASSIST_TIMEOUT) as client:
+            r = await client.get(
+                f"{WASSIST_BASE}/conversations/",
+                headers=headers,
+                params={"phoneNumber": to_number.lstrip("+")},
+            )
+            if r.is_success:
+                data = r.json()
+                results = data.get("results", data) if isinstance(data, dict) else data
+                if results:
+                    return results[0]["id"]
+    except Exception as e:
+        print(f"[whatsapp] conversation lookup error: {e}")
+
+    # No existing conversation — attempt to create one.
+    # This requires a linked sender number (paid Wassist plan).
+    try:
+        async with httpx.AsyncClient(timeout=WASSIST_TIMEOUT) as client:
+            r = await client.post(
+                f"{WASSIST_BASE}/conversations/",
+                headers=headers,
+                json={"phoneNumber": to_number},
+            )
+            if r.is_success:
+                return r.json()["id"]
+            print(f"[whatsapp] conversation create {r.status_code}: {r.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"[whatsapp] conversation create error: {e}")
+        return None
+
+
+async def send_whatsapp(to_number: str, message: str) -> bool:
+    """
+    Send a WhatsApp message via Wassist to `to_number`.
+    Returns True on success, False on any failure.
+    Never raises — all errors are logged and swallowed so the loop never crashes.
+
+    Requires WASSIST_API_KEY in environment. If not set, logs and returns False.
+    Requires a linked WhatsApp sender number on the Wassist account (paid plan).
+    """
+    api_key = os.environ.get("WASSIST_API_KEY", "")
+    if not api_key:
+        print("[whatsapp] WASSIST_API_KEY not set — skipping WhatsApp notification")
+        return False
+
+    try:
+        headers = {
+            "X-API-Key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        conv_id = await _get_or_create_wassist_conversation(to_number, api_key)
+        if not conv_id:
+            print(f"[whatsapp] No conversation available for {to_number} — Wassist sender number may not be configured (requires paid plan)")
+            return False
+
+        payload = {
+            "type": "text",
+            "text": {"body": message},
+        }
+
+        async with httpx.AsyncClient(timeout=WASSIST_TIMEOUT) as client:
+            r = await client.post(
+                f"{WASSIST_BASE}/conversations/{conv_id}/messages/",
+                headers=headers,
+                json=payload,
+            )
+
+        print(f"[whatsapp] send {r.status_code}: {r.text[:300]}")
+
+        if r.is_success:
+            print(f"[whatsapp] Message sent to {to_number}")
+            return True
+        else:
+            print(f"[whatsapp] Send failed {r.status_code}: {r.text[:200]}")
+            return False
+
+    except Exception as e:
+        print(f"[whatsapp] Unexpected error sending to {to_number}: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Finance: PayPal sandbox invoicing (GBP)
 # ---------------------------------------------------------------------------
 
@@ -886,6 +998,55 @@ async def run_finance_single(db: SupabaseClient, job_id: str):
         f"Invoice {invoice['invoice_id']} created{sim_note}. £{fee_pounds:.2f} billed. Pay link appended to deliverable.",
         job_id=job_id,
     )
+
+    # Send WhatsApp notification to the director / company contact.
+    # Recipient is read from WASSIST_TEST_NUMBER env var (for demo/hackathon).
+    # Non-fatal: if Wassist fails for any reason, we log and continue.
+    try:
+        wa_number = os.environ.get("WASSIST_TEST_NUMBER", "")
+        if wa_number:
+            # Extract director from job body (format: "DIRECTOR: Name\n...")
+            director_name: Optional[str] = None
+            job_body_for_wa = job.get("body", "")
+            if job_body_for_wa.startswith("DIRECTOR: "):
+                nl = job_body_for_wa.find("\n")
+                if nl != -1:
+                    director_name = job_body_for_wa[len("DIRECTOR: "):nl].strip() or None
+
+            # Parse the penalty amount from the job body
+            penalty_str = "£150"
+            for band_marker in ("£1,500", "£750", "£375", "£150"):
+                if band_marker in job.get("body", ""):
+                    penalty_str = band_marker
+                    break
+
+            # Parse due date from job title (format: "... accounts due DD Month YYYY")
+            due_date_str = ""
+            title_lower = job.get("title", "")
+            due_match = re.search(r"due (.+)$", title_lower, re.I)
+            if due_match:
+                due_date_str = due_match.group(1).strip()
+
+            # Company name from job title
+            company_name = re.sub(r" accounts due.*$", "", job.get("title", ""), flags=re.I).strip()
+
+            greeting = f"Hi {director_name.split()[0]}," if director_name else "Hi there,"
+            wa_message = (
+                f"{greeting} this is Hands Off. "
+                f"{company_name} accounts are due {due_date_str} — "
+                f"you risk a {penalty_str} late filing penalty. "
+                f"We can file it for you for £{fee_pounds:.2f} (5% of the penalty). "
+                f"Pay securely here: {invoice['invoice_url']}"
+            )
+            # Trim to 600 chars
+            if len(wa_message) > 600:
+                wa_message = wa_message[:597] + "..."
+
+            await send_whatsapp(wa_number, wa_message)
+        else:
+            print("[whatsapp] WASSIST_TEST_NUMBER not set — skipping WhatsApp notification")
+    except Exception as wa_err:
+        print(f"[whatsapp] WhatsApp notification error (non-fatal): {wa_err}")
 
     # Record a learning signal on every real charge
     category = derive_category(job["title"], job.get("body", ""))

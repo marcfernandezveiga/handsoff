@@ -161,7 +161,7 @@ export function Header({ revenueCents, jobsDone, paused, onTogglePause }: Props)
           {formatRevenue(revenueCents)}
         </span>
         <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-          earned automatically
+          invoiced, awaiting payment
         </span>
       </div>
     </header>
