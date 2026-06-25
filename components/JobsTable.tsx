@@ -10,9 +10,18 @@ interface Props {
 const STATUS_LABEL: Record<JobStatus, string> = {
   found:             'Found',
   skipped:           'Skipped',
-  awaiting_approval: 'Awaiting',
+  awaiting_approval: 'Waiting',
   approved:          'Sent',
   charged:           'Billed',
+};
+
+// Plain-language explanation of each status
+const STATUS_EXPLAIN: Record<JobStatus, string> = {
+  found:             'Agent spotted this company',
+  skipped:           'Agent decided to skip',
+  awaiting_approval: 'Reminder ready, needs approval',
+  approved:          'Reminder sent to company',
+  charged:           'Reminder sent, fee collected',
 };
 
 function statusColor(status: JobStatus): string {
@@ -20,7 +29,7 @@ function statusColor(status: JobStatus): string {
     case 'charged':           return 'var(--green)';
     case 'approved':          return 'var(--green)';
     case 'awaiting_approval': return 'var(--amber)';
-    case 'found':             return 'var(--ink-md)';
+    case 'found':             return 'var(--blue)';
     case 'skipped':           return 'var(--ink-lo)';
   }
 }
@@ -28,9 +37,20 @@ function statusColor(status: JobStatus): string {
 function statusBg(status: JobStatus): string {
   switch (status) {
     case 'charged':
-    case 'approved':          return 'var(--green-dim)';
-    case 'awaiting_approval': return 'var(--amber-dim)';
+    case 'approved':          return 'var(--green-label)';
+    case 'awaiting_approval': return 'var(--amber-label)';
+    case 'found':             return 'var(--blue-dim)';
     default:                  return 'var(--bg-raised)';
+  }
+}
+
+function statusBorder(status: JobStatus): string {
+  switch (status) {
+    case 'charged':
+    case 'approved':          return 'var(--green-border)';
+    case 'awaiting_approval': return 'var(--amber-border)';
+    case 'found':             return 'var(--blue-border)';
+    default:                  return 'var(--border)';
   }
 }
 
@@ -49,6 +69,18 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
+// Extract company name, stripping " -- accounts due ..." suffix
+function companyName(title: string): string {
+  const idx = title.indexOf(' --');
+  return idx > -1 ? title.slice(0, idx) : title;
+}
+
+// Extract "accounts due DATE" portion
+function duePart(title: string): string | null {
+  const m = title.match(/accounts due (.+)/i);
+  return m ? `Due ${m[1]}` : null;
+}
+
 export function JobsTable({ jobs }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -58,31 +90,40 @@ export function JobsTable({ jobs }: Props) {
 
   if (sorted.length === 0) {
     return (
-      <div
-        className="flex items-center justify-center h-16 mx-5 my-4 rounded-lg text-xs"
-        style={{
-          background: 'var(--bg-surface)',
-          color: 'var(--ink-lo)',
-          border: '1px solid var(--border)',
-        }}
-      >
-        No companies detected yet
+      <div className="px-5 py-8 text-center">
+        <p className="text-sm font-medium" style={{ color: 'var(--ink-md)' }}>
+          No companies in this category yet
+        </p>
+        <p className="text-xs mt-1" style={{ color: 'var(--ink-lo)' }}>
+          The agent checks Companies House every few seconds
+        </p>
       </div>
     );
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+      <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
-            {['Company', 'Status', 'Penalty risk', 'Fee', 'Age'].map((col) => (
+            {[
+              { label: 'Company', width: 'auto' },
+              { label: 'Status', width: '10rem' },
+              { label: 'Penalty at risk', width: '9rem' },
+              { label: 'Fee earned', width: '8rem' },
+              { label: 'Age', width: '4.5rem' },
+              { label: '', width: '6rem' }, // expand column
+            ].map((col) => (
               <th
-                key={col}
-                className="px-5 py-2.5 text-left font-medium"
-                style={{ color: 'var(--ink-lo)' }}
+                key={col.label}
+                className="px-5 py-3 text-left text-xs font-semibold"
+                style={{
+                  color: 'var(--ink-lo)',
+                  width: col.width !== 'auto' ? col.width : undefined,
+                  background: 'var(--bg-surface)',
+                }}
               >
-                {col}
+                {col.label}
               </th>
             ))}
           </tr>
@@ -90,122 +131,187 @@ export function JobsTable({ jobs }: Props) {
         <tbody>
           {sorted.map((job) => {
             const isExpanded = expandedId === job.id;
+            const company = companyName(job.title);
+            const due = duePart(job.title);
+            const hasReminder = Boolean(job.deliverable);
 
             return (
               <Fragment key={job.id}>
                 <tr
                   className="table-row"
-                  style={{ borderBottom: isExpanded ? 'none' : '1px solid var(--border-subtle)' }}
+                  style={{
+                    borderBottom: '1px solid var(--border-subtle)',
+                    background: isExpanded ? 'var(--bg-hover)' : undefined,
+                  }}
                   onClick={() => setExpandedId(isExpanded ? null : job.id)}
                 >
                   {/* Company */}
-                  <td className="px-5 py-3 max-w-xs">
-                    <a
-                      href={job.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="job-link font-medium leading-snug line-clamp-1"
-                      style={{ color: 'var(--ink-hi)' }}
-                      title={job.title}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {job.title}
-                    </a>
+                  <td className="px-5 py-3.5">
+                    <div className="flex flex-col gap-0.5">
+                      <a
+                        href={job.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="job-link font-semibold leading-snug line-clamp-1"
+                        style={{ color: 'var(--ink-hi)', fontSize: '0.875rem' }}
+                        title={job.title}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {company}
+                      </a>
+                      {due && (
+                        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+                          {due}
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* Status badge */}
-                  <td className="px-5 py-3 whitespace-nowrap">
-                    <span
-                      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold"
-                      style={{
-                        background: statusBg(job.status),
-                        color: statusColor(job.status),
-                      }}
-                    >
-                      {STATUS_LABEL[job.status]}
-                    </span>
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex flex-col gap-0.5">
+                      <span
+                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold w-fit"
+                        style={{
+                          background: statusBg(job.status),
+                          color: statusColor(job.status),
+                          border: `1px solid ${statusBorder(job.status)}`,
+                        }}
+                        title={STATUS_EXPLAIN[job.status]}
+                      >
+                        {STATUS_LABEL[job.status]}
+                      </span>
+                    </div>
                   </td>
 
                   {/* Penalty */}
-                  <td
-                    className="px-5 py-3 whitespace-nowrap font-mono tabular-nums"
-                    style={{
-                      color: job.budget_text?.includes('£150') || job.budget_text?.includes('£375')
-                        ? 'var(--amber)'
-                        : 'var(--ink-lo)',
-                      fontFamily: 'var(--font-geist-mono)',
-                    }}
-                  >
-                    {job.budget_text ?? '--'}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <span
+                      className="font-mono tabular-nums text-sm font-semibold"
+                      style={{
+                        color: job.budget_text && job.budget_text !== 'Risk: none'
+                          ? 'var(--amber)'
+                          : 'var(--ink-lo)',
+                        fontFamily: 'var(--font-geist-mono)',
+                      }}
+                    >
+                      {job.budget_text ?? '--'}
+                    </span>
                   </td>
 
                   {/* Fee */}
-                  <td
-                    className="px-5 py-3 whitespace-nowrap font-mono font-semibold tabular-nums"
-                    style={{
-                      color: job.fee_cents ? 'var(--green)' : 'var(--ink-lo)',
-                      fontFamily: 'var(--font-geist-mono)',
-                    }}
-                  >
-                    {job.fee_cents ? formatFee(job.fee_cents) : '--'}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <span
+                      className="font-mono font-bold tabular-nums text-sm"
+                      style={{
+                        color: job.fee_cents ? 'var(--green)' : 'var(--ink-lo)',
+                        fontFamily: 'var(--font-geist-mono)',
+                      }}
+                    >
+                      {job.fee_cents ? formatFee(job.fee_cents) : '--'}
+                    </span>
                   </td>
 
                   {/* Age */}
-                  <td
-                    className="px-5 py-3 whitespace-nowrap font-mono tabular-nums"
-                    style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
-                  >
-                    {timeAgo(job.created_at)}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <span
+                      className="font-mono tabular-nums text-xs"
+                      style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
+                    >
+                      {timeAgo(job.created_at)}
+                    </span>
+                  </td>
+
+                  {/* Expand affordance */}
+                  <td className="px-5 py-3.5 whitespace-nowrap text-right">
+                    {hasReminder && (
+                      <button
+                        className="text-xs font-medium flex items-center gap-1.5 ml-auto"
+                        style={{
+                          color: isExpanded ? 'var(--blue)' : 'var(--ink-md)',
+                          background: isExpanded ? 'var(--blue-dim)' : 'var(--bg-raised)',
+                          border: `1px solid ${isExpanded ? 'var(--blue-border)' : 'var(--border)'}`,
+                          borderRadius: 'var(--radius-sm)',
+                          padding: '0.3rem 0.6rem',
+                          cursor: 'pointer',
+                          transition: 'all 120ms ease-out',
+                          outline: 'none',
+                          whiteSpace: 'nowrap',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedId(isExpanded ? null : job.id);
+                        }}
+                        aria-expanded={isExpanded}
+                        aria-label={isExpanded ? 'Hide reminder' : 'View reminder'}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                            transition: 'transform 150ms ease-out',
+                            fontSize: '0.55rem',
+                          }}
+                        >
+                          ▶
+                        </span>
+                        {isExpanded ? 'Hide' : 'See email'}
+                      </button>
+                    )}
                   </td>
                 </tr>
 
                 {/* Expanded detail row */}
                 {isExpanded && (
-                  <tr
-                    style={{ borderBottom: '1px solid var(--border-subtle)' }}
-                  >
+                  <tr>
                     <td
-                      colSpan={5}
-                      className="px-5 pb-4 pt-0"
+                      colSpan={6}
+                      style={{ borderBottom: '1px solid var(--border-subtle)' }}
                     >
                       <div
-                        className="rounded-lg p-4 expand-row"
+                        className="mx-5 my-3 rounded-lg p-4 expand-row"
                         style={{
-                          background: 'var(--bg-raised)',
+                          background: 'var(--bg-surface)',
                           border: '1px solid var(--border)',
                         }}
                       >
                         {job.body && (
                           <p
-                            className="text-xs leading-relaxed mb-3"
-                            style={{ color: 'var(--ink-md)' }}
+                            className="text-sm leading-relaxed mb-3"
+                            style={{ color: 'var(--ink-md)', maxWidth: '65ch' }}
                           >
                             {job.body}
                           </p>
                         )}
                         {job.reasoning && (
-                          <p
-                            className="text-xs leading-relaxed mb-3"
-                            style={{ color: 'var(--ink-lo)' }}
+                          <div
+                            className="mb-3 px-3 py-2.5 rounded-md text-xs"
+                            style={{
+                              background: 'var(--bg-raised)',
+                              border: '1px solid var(--border)',
+                              color: 'var(--ink-md)',
+                            }}
                           >
-                            <span style={{ color: 'var(--ink-md)' }}>Reasoning: </span>
+                            <span className="font-semibold" style={{ color: 'var(--ink-hi)' }}>
+                              Why the agent acted:{' '}
+                            </span>
                             {job.reasoning}
-                          </p>
+                          </div>
                         )}
                         {job.deliverable && (
                           <div>
                             <p
-                              className="text-xs font-semibold mb-1.5"
-                              style={{ color: 'var(--ink-md)' }}
+                              className="text-xs font-semibold mb-2"
+                              style={{ color: 'var(--ink-hi)' }}
                             >
-                              Drafted reminder
+                              Reminder email the agent wrote
                             </p>
                             <pre
-                              className="text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto rounded-md p-3"
+                              className="text-xs leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto rounded-md p-4"
                               style={{
                                 fontFamily: 'var(--font-geist-mono)',
-                                color: 'var(--ink-lo)',
-                                background: 'var(--bg-base)',
+                                color: 'var(--ink-md)',
+                                background: 'var(--bg-raised)',
                                 border: '1px solid var(--border)',
                               }}
                             >

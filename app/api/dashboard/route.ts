@@ -1,8 +1,8 @@
 // GET /api/dashboard
 // Returns: { jobs, events, revenueCents, counts }
-// Polled every 1500ms by the control room UI.
+// Read-only — polled every 5s by the dashboard UI.
 
-import { getDashboardData } from "@/lib/agents";
+import { getDashboardData } from "@/lib/dashboard";
 import type { DashboardPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

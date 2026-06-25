@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 interface Props {
   revenueCents: number;
   jobsDone: number;
-  tickInFlight: boolean;
 }
 
 function formatRevenue(cents: number): string {
@@ -13,14 +12,14 @@ function formatRevenue(cents: number): string {
   return `£${pounds}`;
 }
 
-export function Header({ revenueCents, jobsDone, tickInFlight }: Props) {
+export function Header({ revenueCents, jobsDone }: Props) {
   const prevRevenue = useRef(revenueCents);
   const [bumped, setBumped] = useState(false);
 
   useEffect(() => {
     if (revenueCents > prevRevenue.current) {
       setBumped(true);
-      const t = setTimeout(() => setBumped(false), 600);
+      const t = setTimeout(() => setBumped(false), 500);
       prevRevenue.current = revenueCents;
       return () => clearTimeout(t);
     }
@@ -32,90 +31,87 @@ export function Header({ revenueCents, jobsDone, tickInFlight }: Props) {
       style={{
         background: 'var(--bg-surface)',
         borderBottom: '1px solid var(--border)',
+        boxShadow: '0 1px 3px oklch(0.18 0.012 252 / 0.06)',
       }}
-      className="px-6 h-14 flex items-center gap-6 shrink-0"
+      className="px-6 h-16 flex items-center gap-5 shrink-0"
     >
       {/* Brand */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-3 shrink-0">
         {/* Live indicator */}
-        <div className="relative flex items-center justify-center w-3 h-3">
+        <div className="relative flex items-center justify-center w-4 h-4">
           <span
             className="animate-pulse-ring absolute inset-0 rounded-full"
-            style={{ background: 'var(--green)', opacity: 0.3 }}
+            style={{ background: 'var(--green)', opacity: 0.35 }}
           />
           <span
-            className="animate-pulse-dot relative inline-block w-1.5 h-1.5 rounded-full"
+            className="animate-pulse-dot relative inline-block w-2 h-2 rounded-full"
             style={{ background: 'var(--green)' }}
           />
         </div>
 
-        <span
-          style={{ color: 'var(--ink-hi)', letterSpacing: '-0.02em' }}
-          className="text-sm font-semibold leading-none"
-        >
-          Hands Off
-        </span>
+        <div className="flex flex-col leading-none gap-0.5">
+          <span
+            style={{ color: 'var(--ink-hi)', letterSpacing: '-0.02em', fontSize: '1rem', fontWeight: 700 }}
+          >
+            Hands Off
+          </span>
+          <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+            AI agent running on its own
+          </span>
+        </div>
 
         <span
-          className="text-xs px-1.5 py-0.5 rounded font-medium"
+          className="text-xs px-2 py-0.5 rounded-full font-semibold"
           style={{
-            background: 'var(--green-dim)',
+            background: 'var(--green-label)',
             color: 'var(--green)',
             border: '1px solid var(--green-border)',
           }}
         >
-          running
+          live
         </span>
 
-        {tickInFlight && (
-          <div className="flex items-center gap-1.5 ml-1">
-            <span
-              className="animate-spin-slow inline-block w-2.5 h-2.5 rounded-full"
-              style={{
-                border: '1.5px solid var(--border)',
-                borderTopColor: 'var(--ink-lo)',
-              }}
-            />
-            <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-              processing
-            </span>
-          </div>
-        )}
+
       </div>
 
       <div className="flex-1" />
 
-      {/* Billed count -- secondary */}
+      {/* Companies billed -- secondary */}
       <div
-        className="flex items-center gap-2.5"
+        className="flex flex-col items-end gap-0.5"
         style={{ borderRight: '1px solid var(--border)', paddingRight: '1.5rem' }}
       >
-        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-          Companies billed
-        </span>
         <span
-          className="font-mono text-sm font-semibold tabular-nums"
-          style={{ color: 'var(--ink-md)', fontFamily: 'var(--font-geist-mono)' }}
+          className="font-mono font-bold tabular-nums leading-none"
+          style={{
+            color: 'var(--ink-hi)',
+            fontSize: '1.25rem',
+            letterSpacing: '-0.02em',
+            fontFamily: 'var(--font-geist-mono)',
+          }}
         >
           {jobsDone}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+          companies billed
         </span>
       </div>
 
       {/* Revenue -- the headline */}
-      <div className="flex items-baseline gap-2 shrink-0">
-        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-          Revenue
-        </span>
+      <div className="flex flex-col items-end gap-0.5 shrink-0">
         <span
           className={`font-mono font-bold tabular-nums leading-none ${bumped ? 'revenue-bump' : ''}`}
           style={{
             color: 'var(--green)',
             fontFamily: 'var(--font-geist-mono)',
-            fontSize: 'clamp(1.25rem, 2vw, 1.75rem)',
+            fontSize: 'clamp(1.5rem, 2.5vw, 2rem)',
             letterSpacing: '-0.03em',
           }}
         >
           {formatRevenue(revenueCents)}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+          earned automatically
         </span>
       </div>
     </header>

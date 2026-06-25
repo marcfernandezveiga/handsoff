@@ -1,6 +1,6 @@
-// Learning store: tracks approve/reject signals per job category.
-// Every human decision trains the agent's understanding of what works.
-// Uses an in-memory mock when Supabase env is absent, matching lib/agents.ts pattern.
+// Learning read layer: derives category stats from the learnings table.
+// Read-only — signal recording (recordSignal) now lives in the Python Modal agent.
+// Used by the dashboard to show "how it's learning" panel.
 
 import { createServiceClient, hasSupabaseEnv } from "./supabase";
 
@@ -49,11 +49,7 @@ export interface LearningsPayload {
   recentAdjustments: string[]; // human-readable log lines, newest first
 }
 
-// ---------------------------------------------------------------------------
-// In-memory mock store
-// ---------------------------------------------------------------------------
-
-interface MockLearningRow {
+interface LearningRow {
   id: string;
   category: string;
   signal: "approved" | "rejected";
@@ -62,80 +58,15 @@ interface MockLearningRow {
   created_at: string;
 }
 
-let mockLearnings: MockLearningRow[] = [];
-
-// ---------------------------------------------------------------------------
-// Record a signal (called from approve/reject routes via recordSignal())
-// ---------------------------------------------------------------------------
-
-export async function recordSignal(params: {
-  jobId: string;
-  category: string;
-  signal: "approved" | "rejected";
-  feeCents: number;
-}): Promise<void> {
-  const { jobId, category, signal, feeCents } = params;
-
-  if (!hasSupabaseEnv) {
-    mockLearnings.push({
-      id: `learn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      category,
-      signal,
-      job_id: jobId,
-      fee_cents: feeCents,
-      created_at: new Date().toISOString(),
-    });
-    return;
-  }
-
-  try {
-    const db = createServiceClient();
-    await db.from("learnings").insert({
-      job_id: jobId,
-      category,
-      signal,
-      fee_cents: feeCents,
-    });
-  } catch (err) {
-    console.warn("[learning] recordSignal failed:", err);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Get the current learned fee for a category (used by Worker)
-// Returns null if no data yet — caller should use its own default.
-// ---------------------------------------------------------------------------
-
-export async function getLearnedFee(category: string): Promise<number | null> {
-  const learnings = await getLearningsPayload();
-  const cat = learnings.categories.find((c) => c.category === category);
-  if (!cat || cat.approved + cat.rejected < 1) return null;
-  return cat.learnedFeeCents;
-}
-
-// ---------------------------------------------------------------------------
-// Get acceptance rate for a category (used by Worker to decide skip/proceed)
-// Returns null if no data yet.
-// ---------------------------------------------------------------------------
-
-export async function getCategoryAcceptanceRate(
-  category: string
-): Promise<number | null> {
-  const learnings = await getLearningsPayload();
-  const cat = learnings.categories.find((c) => c.category === category);
-  if (!cat || cat.approved + cat.rejected < 2) return null; // need at least 2 signals to be meaningful
-  return cat.acceptanceRate;
-}
-
 // ---------------------------------------------------------------------------
 // Build the full learnings payload (used by dashboard)
 // ---------------------------------------------------------------------------
 
 export async function getLearningsPayload(): Promise<LearningsPayload> {
-  let rows: MockLearningRow[] = [];
+  let rows: LearningRow[] = [];
 
   if (!hasSupabaseEnv) {
-    rows = [...mockLearnings];
+    rows = [];
   } else {
     try {
       const db = createServiceClient();
@@ -144,7 +75,7 @@ export async function getLearningsPayload(): Promise<LearningsPayload> {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      rows = (data ?? []) as MockLearningRow[];
+      rows = (data ?? []) as LearningRow[];
     } catch (err) {
       console.warn("[learning] getLearningsPayload failed:", err);
       rows = [];
@@ -181,24 +112,19 @@ export async function getLearningsPayload(): Promise<LearningsPayload> {
     const acceptanceRate = total > 0 ? data.approved / total : 0;
 
     // Learned fee: average of approved fees, nudged by rejection rate
-    // If all rejected: drop 20% below default. If mixed: weight toward approved avg.
     let learnedFeeCents: number;
     if (data.fees.length > 0) {
       const avgApproved =
         data.fees.reduce((a, b) => a + b, 0) / data.fees.length;
-      // Nudge: multiply by acceptance rate to penalise poor categories
-      // Floor at 50, cap at 1000
       learnedFeeCents = Math.round(
         Math.max(50, Math.min(1000, avgApproved * (0.5 + 0.5 * acceptanceRate)))
       );
     } else {
-      // Only rejections: drop price below default to improve chances
       learnedFeeCents = Math.round(DEFAULT_FEE * 0.7);
     }
 
     categories.push({ category, approved: data.approved, rejected: data.rejected, acceptanceRate, learnedFeeCents });
 
-    // Generate human-readable adjustment lines for recent changes
     if (total >= 1) {
       const displayCategory = category.replace(/-/g, " ");
       const price = `£${(learnedFeeCents / 100).toFixed(2)}`;
@@ -221,13 +147,11 @@ export async function getLearningsPayload(): Promise<LearningsPayload> {
   // Sort: best performing first
   categories.sort((a, b) => b.acceptanceRate - a.acceptanceRate);
 
-  // Overall stats
   const totalDecisions = rows.length;
   const totalApproved = rows.filter((r) => r.signal === "approved").length;
   const overallAcceptanceRate =
     totalDecisions > 0 ? totalApproved / totalDecisions : 0;
 
-  // recentAdjustments: newest-first slice of category summaries (cap at 5)
   return {
     overallAcceptanceRate,
     totalDecisions,

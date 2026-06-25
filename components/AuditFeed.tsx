@@ -8,11 +8,11 @@ interface Props {
 }
 
 const ACTION_LABEL: Record<JobStatus, string | null> = {
-  charged:           'Billed',
-  approved:          'Sent',
+  charged:           'Sent reminder + billed',
+  approved:          'Reminder sent',
   skipped:           'Skipped',
-  awaiting_approval: null, // should not appear in autonomous flow
-  found:             null, // scouted, not yet processed
+  awaiting_approval: null,
+  found:             null,
 };
 
 function formatFee(cents: number | null): string {
@@ -49,15 +49,13 @@ export function AuditFeed({ jobs }: Props) {
 
   if (handled.length === 0) {
     return (
-      <div
-        className="mx-4 my-4 rounded-lg flex items-center justify-center h-16 text-xs"
-        style={{
-          background: 'var(--bg-raised)',
-          border: '1px solid var(--border)',
-          color: 'var(--ink-lo)',
-        }}
-      >
-        No activity yet
+      <div className="px-4 py-6 text-center">
+        <p className="text-sm font-medium" style={{ color: 'var(--ink-md)' }}>
+          No completed actions yet
+        </p>
+        <p className="text-xs mt-1" style={{ color: 'var(--ink-lo)' }}>
+          The agent will start acting soon
+        </p>
       </div>
     );
   }
@@ -85,6 +83,7 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
 
   const isBilled = job.status === 'charged';
   const isSkipped = job.status === 'skipped';
+  const hasReminder = Boolean(job.deliverable);
 
   return (
     <div
@@ -92,19 +91,19 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
     >
       {/* Main row */}
       <div
-        className="flex items-start gap-3 px-4 py-3 event-row"
-        style={{ cursor: job.deliverable ? 'pointer' : 'default' }}
-        onClick={() => job.deliverable && setExpanded((v) => !v)}
+        className="flex items-start gap-3 px-4 py-3.5 event-row"
+        style={{ cursor: hasReminder ? 'pointer' : 'default' }}
+        onClick={() => hasReminder && setExpanded((v) => !v)}
       >
         {/* Status dot */}
         <div
-          className="mt-1 shrink-0 w-1.5 h-1.5 rounded-full"
+          className="mt-1.5 shrink-0 w-2 h-2 rounded-full"
           style={{
             background: isBilled
               ? 'var(--green)'
               : isSkipped
                 ? 'var(--ink-lo)'
-                : 'var(--ink-md)',
+                : 'var(--blue)',
             opacity: isSkipped ? 0.4 : 1,
           }}
         />
@@ -113,7 +112,7 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <span
-              className="text-xs font-medium leading-snug"
+              className="text-sm font-semibold leading-snug"
               style={{
                 color: isSkipped ? 'var(--ink-lo)' : 'var(--ink-hi)',
               }}
@@ -122,7 +121,7 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
             </span>
             {job.fee_cents && (
               <span
-                className="font-mono text-xs font-semibold shrink-0 tabular-nums"
+                className="font-mono text-sm font-bold shrink-0 tabular-nums"
                 style={{ color: 'var(--green)', fontFamily: 'var(--font-geist-mono)' }}
               >
                 {formatFee(job.fee_cents)}
@@ -130,18 +129,18 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
             )}
           </div>
 
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             {action && (
               <span
                 className="text-xs"
-                style={{ color: isSkipped ? 'var(--ink-lo)' : 'var(--ink-lo)' }}
+                style={{ color: isSkipped ? 'var(--ink-lo)' : 'var(--ink-md)' }}
               >
                 {action}
               </span>
             )}
             {due && !isSkipped && (
               <>
-                <span style={{ color: 'var(--border)', fontSize: '0.55rem' }}>•</span>
+                <span style={{ color: 'var(--border)', fontSize: '0.5rem' }}>•</span>
                 <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
                   due {due}
                 </span>
@@ -149,28 +148,31 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
             )}
             <span
               className="ml-auto font-mono text-xs"
-              style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)' }}
+              style={{ color: 'var(--ink-lo)', fontFamily: 'var(--font-geist-mono)', whiteSpace: 'nowrap' }}
             >
               {timeAgo(job.updated_at)}
             </span>
           </div>
 
-          {/* Flag + expand affordances */}
-          <div className="flex items-center gap-3 mt-1.5">
-            {job.deliverable && (
+          {/* Expand + Flag affordances */}
+          <div className="flex items-center gap-2 mt-2">
+            {hasReminder && (
               <button
-                onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-                className="text-xs"
-                style={{
-                  color: 'var(--ink-lo)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpanded((v) => !v);
                 }}
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded"
+                style={{
+                  color: expanded ? 'var(--blue)' : 'var(--ink-md)',
+                  background: expanded ? 'var(--blue-dim)' : 'var(--bg-raised)',
+                  border: `1px solid ${expanded ? 'var(--blue-border)' : 'var(--border)'}`,
+                  cursor: 'pointer',
+                  outline: 'none',
+                  transition: 'all 120ms ease-out',
+                }}
+                aria-expanded={expanded}
+                aria-label={expanded ? 'Hide reminder' : 'View reminder email'}
               >
                 <span
                   style={{
@@ -182,23 +184,26 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
                 >
                   ▶
                 </span>
-                {expanded ? 'Hide' : 'View reminder'}
+                {expanded ? 'Hide email' : 'View reminder'}
               </button>
             )}
 
-            {/* Subtle flag affordance -- non-blocking human oversight */}
+            {/* Flag affordance */}
             <button
-              onClick={(e) => { e.stopPropagation(); setFlagged((v) => !v); }}
-              title={flagged ? 'Unflag' : 'Flag for review'}
+              onClick={(e) => {
+                e.stopPropagation();
+                setFlagged((v) => !v);
+              }}
+              title={flagged ? 'Remove flag' : 'Flag for review'}
               style={{
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
                 padding: 0,
                 color: flagged ? 'var(--amber)' : 'var(--ink-lo)',
-                opacity: flagged ? 1 : 0.35,
-                transition: 'color 150ms ease-out, opacity 150ms ease-out',
-                fontSize: '0.7rem',
+                opacity: flagged ? 1 : 0.4,
+                transition: 'color 120ms ease-out, opacity 120ms ease-out',
+                fontSize: '0.8rem',
                 lineHeight: 1,
               }}
               aria-label={flagged ? 'Remove flag' : 'Flag for review'}
@@ -214,11 +219,17 @@ function AuditRow({ job, isLast }: { job: Job; isLast: boolean }) {
         <div
           className="mx-4 mb-3 expand-row"
         >
+          <p
+            className="text-xs font-semibold mb-1.5 px-1"
+            style={{ color: 'var(--ink-hi)' }}
+          >
+            Reminder email the agent wrote:
+          </p>
           <pre
-            className="text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto rounded-md p-3"
+            className="text-xs leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto rounded-lg p-4"
             style={{
               fontFamily: 'var(--font-geist-mono)',
-              color: 'var(--ink-lo)',
+              color: 'var(--ink-md)',
               background: 'var(--bg-raised)',
               border: '1px solid var(--border)',
             }}

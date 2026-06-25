@@ -1,151 +1,27 @@
-import type { DashboardPayload, LearningsPayload } from '@/lib/types';
 import { Dashboard } from '@/components/Dashboard';
+import { getDashboardData } from '@/lib/dashboard';
+import type { DashboardPayload } from '@/lib/types';
 
-const MOCK_LEARNINGS: LearningsPayload = {
-  overallAcceptanceRate: 0,
-  totalDecisions: 0,
-  categories: [],
-  recentAdjustments: [],
-};
+export const dynamic = 'force-dynamic';
 
-const MOCK: DashboardPayload = {
-  revenueCents: 8750,
-  counts: { found: 12, awaiting: 2, charged: 3, skipped: 4 },
-  learnings: MOCK_LEARNINGS,
-  events: [
-    {
-      id: 'e1',
-      agent: 'scout',
-      action: 'Detected deadline',
-      detail: 'Kettlebell & Co Ltd -- accounts due 31 Jul 2025, 36 days remaining',
-      job_id: 'j1',
-      created_at: new Date(Date.now() - 30000).toISOString(),
-    },
-    {
-      id: 'e2',
-      agent: 'worker',
-      action: 'Assessed company',
-      detail: 'Private limited, first late penalty is £150 -- reminder warranted',
-      job_id: 'j1',
-      created_at: new Date(Date.now() - 25000).toISOString(),
-    },
-    {
-      id: 'e3',
-      agent: 'worker',
-      action: 'Drafted reminder',
-      detail: 'Filing checklist and deadline notice ready for review',
-      job_id: 'j1',
-      created_at: new Date(Date.now() - 20000).toISOString(),
-    },
-    {
-      id: 'e4',
-      agent: 'manager',
-      action: 'Queued for approval',
-      detail: 'Service fee: £5.00',
-      job_id: 'j1',
-      created_at: new Date(Date.now() - 15000).toISOString(),
-    },
-    {
-      id: 'e5',
-      agent: 'finance',
-      action: 'Fee collected',
-      detail: 'Stripe -- £3.50 billed to Redwood Supplies Ltd',
-      job_id: 'j3',
-      created_at: new Date(Date.now() - 60000).toISOString(),
-    },
-    {
-      id: 'e6',
-      agent: 'scout',
-      action: 'Scanned Companies House',
-      detail: '8 companies with accounts deadlines in next 30 days reviewed',
-      job_id: null,
-      created_at: new Date(Date.now() - 90000).toISOString(),
-    },
-    {
-      id: 'e7',
-      agent: 'worker',
-      action: 'Skipped company',
-      detail: 'Already filed -- accounts submitted 14 Jun 2025',
-      job_id: 'j5',
-      created_at: new Date(Date.now() - 120000).toISOString(),
-    },
-  ],
-  jobs: [
-    {
-      id: 'j1',
-      source: 'companies-house',
-      source_url: 'https://find-and-update.company-information.service.gov.uk/company/12345678',
-      title: 'Kettlebell & Co Ltd -- accounts due 31 Jul 2025',
-      body: 'Private limited company incorporated 2021. Annual accounts due 31 July 2025. No filing on record for this period. Late penalty starts at £150 after the deadline.',
-      budget_text: 'Risk: £150',
-      status: 'awaiting_approval',
-      reasoning: 'Deadline 36 days out, no submission on record -- good candidate for a reminder',
-      deliverable:
-        'Subject: Your annual accounts are due on 31 July -- here is what you need\n\nDear Director,\n\nCompanies House shows that the annual accounts for Kettlebell & Co Ltd (company number 12345678) are due by 31 July 2025.\n\nFiling late carries an automatic penalty of £150, rising to £375 if you are more than three months late. The penalty doubles if the company was late the previous year.\n\nFiling checklist:\n- Confirm your accounting reference date (likely 31 October)\n- Gather your profit and loss account and balance sheet\n- Check whether you qualify to file abbreviated accounts as a small company\n- Submit via Companies House WebFiling or through your accountant\n- Allow 2-3 working days for processing\n\nWe can file a reminder to your registered email address and flag this again 14 days before the deadline if you would like.\n\nHands Off -- automated Companies House monitoring',
-      fee_cents: 500,
-      created_at: new Date(Date.now() - 30000).toISOString(),
-      updated_at: new Date(Date.now() - 20000).toISOString(),
-    },
-    {
-      id: 'j2',
-      source: 'companies-house',
-      source_url: 'https://find-and-update.company-information.service.gov.uk/company/09876543',
-      title: 'Redwood Supplies Ltd -- accounts due 15 Jul 2025',
-      body: 'Private limited company incorporated 2019. Annual accounts due 15 July 2025. No filing on record. Risk of £150 penalty on the 16th.',
-      budget_text: 'Risk: £150',
-      status: 'awaiting_approval',
-      reasoning: 'Deadline 20 days out, no submission detected -- high urgency',
-      deliverable:
-        'Subject: Accounts due in 20 days -- avoid a £150 Companies House penalty\n\nDear Director,\n\nThis is an automated notice for Redwood Supplies Ltd (09876543).\n\nYour annual accounts must be filed with Companies House by 15 July 2025. Filing even one day late triggers a £150 automatic penalty -- there is no grace period and no appeal for lateness alone.\n\nQuick filing checklist:\n- Confirm your year-end date and accounting period\n- Prepare your balance sheet signed by a director\n- Prepare your profit and loss account\n- Use Companies House WebFiling (free) or instruct your accountant today\n- Allow 2 working days for the filing to register\n\nHandled by Hands Off -- Companies House deadline monitoring',
-      fee_cents: 500,
-      created_at: new Date(Date.now() - 45000).toISOString(),
-      updated_at: new Date(Date.now() - 10000).toISOString(),
-    },
-    {
-      id: 'j3',
-      source: 'companies-house',
-      source_url: 'https://find-and-update.company-information.service.gov.uk/company/07654321',
-      title: 'Thornbury Creative Ltd -- accounts due 30 Jun 2025',
-      body: 'Accounts deadline passed 25 days ago. Penalty of £150 now applies. No filing on record.',
-      budget_text: 'Risk: £375',
-      status: 'charged',
-      reasoning: 'Already overdue -- penalty now £150, escalates to £375 at 3 months',
-      deliverable: null,
-      fee_cents: 350,
-      created_at: new Date(Date.now() - 300000).toISOString(),
-      updated_at: new Date(Date.now() - 60000).toISOString(),
-    },
-    {
-      id: 'j4',
-      source: 'companies-house',
-      source_url: 'https://find-and-update.company-information.service.gov.uk/company/05432198',
-      title: 'Oakfield Holdings Ltd -- accounts due 28 Jun 2025',
-      body: 'Filing found on record dated 20 June 2025. Already compliant.',
-      budget_text: 'Risk: none',
-      status: 'skipped',
-      reasoning: 'Accounts filed on 20 June -- no action needed',
-      deliverable: null,
-      fee_cents: null,
-      created_at: new Date(Date.now() - 400000).toISOString(),
-      updated_at: new Date(Date.now() - 350000).toISOString(),
-    },
-    {
-      id: 'j5',
-      source: 'companies-house',
-      source_url: 'https://find-and-update.company-information.service.gov.uk/company/11223344',
-      title: 'Marlow Digital Ltd -- accounts due 31 Aug 2025',
-      body: 'Private limited company. Accounts due 31 August 2025. Reminder sent 14 June, follow-up approved.',
-      budget_text: 'Risk: £150',
-      status: 'approved',
-      reasoning: 'First reminder sent, follow-up queued for 14 days before deadline',
-      deliverable: 'Follow-up reminder queued for 17 August 2025.',
-      fee_cents: 250,
-      created_at: new Date(Date.now() - 500000).toISOString(),
-      updated_at: new Date(Date.now() - 200000).toISOString(),
-    },
-  ],
-};
+export default async function Home() {
+  let initial: DashboardPayload;
+  try {
+    initial = await getDashboardData();
+  } catch {
+    initial = {
+      jobs: [],
+      events: [],
+      revenueCents: 0,
+      counts: { found: 0, awaiting: 0, charged: 0, skipped: 0 },
+      learnings: {
+        overallAcceptanceRate: 0,
+        totalDecisions: 0,
+        categories: [],
+        recentAdjustments: [],
+      },
+    };
+  }
 
-export default function Home() {
-  return <Dashboard initial={MOCK} />;
+  return <Dashboard initial={initial} />;
 }

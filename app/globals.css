@@ -1,35 +1,42 @@
 @import "tailwindcss";
 
-/* ─── Design tokens ────────────────────────────────────────────────────────── */
+/* ─── Design tokens: light theme ───────────────────────────────────────────── */
 
 :root {
   /* Base surface */
-  --bg-base:         oklch(0.09 0.012 252);
-  --bg-surface:      oklch(0.12 0.010 252);
-  --bg-raised:       oklch(0.15 0.010 252);
-  --bg-hover:        oklch(0.17 0.009 252);
-  --border:          oklch(0.22 0.008 252);
-  --border-subtle:   oklch(0.18 0.007 252);
+  --bg-base:         oklch(0.98 0.004 248);
+  --bg-surface:      oklch(1.00 0.000 0);
+  --bg-raised:       oklch(0.96 0.005 248);
+  --bg-hover:        oklch(0.94 0.006 248);
+  --border:          oklch(0.88 0.008 248);
+  --border-subtle:   oklch(0.92 0.006 248);
 
-  /* Typography */
-  --ink-hi:          oklch(0.97 0.006 252);
-  --ink-md:          oklch(0.75 0.010 252);
-  --ink-lo:          oklch(0.48 0.012 252);
+  /* Typography -- dark on light, all hitting ≥4.5:1 */
+  --ink-hi:          oklch(0.18 0.012 252);
+  --ink-md:          oklch(0.38 0.012 252);
+  --ink-lo:          oklch(0.55 0.010 252);
 
   /* Primary accent: money / running / success */
-  --green:           oklch(0.78 0.150 145);
-  --green-dim:       oklch(0.78 0.150 145 / 0.10);
-  --green-border:    oklch(0.78 0.150 145 / 0.22);
+  --green:           oklch(0.52 0.160 145);
+  --green-dim:       oklch(0.52 0.160 145 / 0.10);
+  --green-border:    oklch(0.52 0.160 145 / 0.25);
+  --green-label:     oklch(0.96 0.035 145);
 
   /* Warning: overdue / penalty / awaiting */
-  --amber:           oklch(0.72 0.140 75);
-  --amber-dim:       oklch(0.72 0.140 75 / 0.10);
-  --amber-border:    oklch(0.72 0.140 75 / 0.22);
+  --amber:           oklch(0.56 0.140 60);
+  --amber-dim:       oklch(0.56 0.140 60 / 0.10);
+  --amber-border:    oklch(0.56 0.140 60 / 0.28);
+  --amber-label:     oklch(0.97 0.040 75);
 
-  /* Danger: reject */
-  --red:             oklch(0.60 0.180 25);
-  --red-dim:         oklch(0.60 0.180 25 / 0.10);
-  --red-border:      oklch(0.60 0.180 25 / 0.20);
+  /* Danger / skipped */
+  --red:             oklch(0.50 0.180 25);
+  --red-dim:         oklch(0.50 0.180 25 / 0.10);
+  --red-border:      oklch(0.50 0.180 25 / 0.22);
+
+  /* Neutral blue -- tab active state */
+  --blue:            oklch(0.50 0.150 248);
+  --blue-dim:        oklch(0.50 0.150 248 / 0.08);
+  --blue-border:     oklch(0.50 0.150 248 / 0.25);
 
   /* Radius */
   --radius-sm:       5px;
@@ -90,7 +97,7 @@ body {
 }
 
 @keyframes pulse-ring {
-  0%   { transform: scale(0.8);  opacity: 0.6; }
+  0%   { transform: scale(0.8);  opacity: 0.5; }
   70%  { transform: scale(1.55); opacity: 0;   }
   100% { transform: scale(0.8);  opacity: 0;   }
 }
@@ -101,7 +108,7 @@ body {
 
 @keyframes revenue-bump {
   0%   { transform: scale(1);    }
-  30%  { transform: scale(1.06); }
+  30%  { transform: scale(1.05); }
   100% { transform: scale(1);    }
 }
 
@@ -142,7 +149,7 @@ body {
 .animate-pulse-ring { animation: pulse-ring 2s ease-out infinite; }
 .animate-spin-slow  { animation: spin-slow  0.9s linear infinite; }
 
-.revenue-bump { animation: revenue-bump 600ms var(--ease-out); }
+.revenue-bump { animation: revenue-bump 500ms var(--ease-out); }
 .stat-tick    { animation: count-tick 160ms var(--ease-out) both; }
 .bar-grow     { animation: bar-grow   800ms var(--ease-out) both; }
 .expand-row   { animation: expand-row 200ms var(--ease-out) both; }
@@ -157,12 +164,12 @@ body {
 }
 
 .btn-primary:not(:disabled):hover {
-  filter: brightness(1.08);
+  filter: brightness(0.92);
 }
 
 .btn-primary:not(:disabled):active {
   transform: translateY(1px);
-  filter: brightness(0.96);
+  filter: brightness(0.86);
 }
 
 .btn-ghost {
@@ -188,7 +195,7 @@ body {
 }
 
 .table-row:hover {
-  background: var(--bg-raised);
+  background: var(--bg-hover);
 }
 
 /* ─── Event row hover ───────────────────────────────────────────────────────── */
@@ -198,7 +205,22 @@ body {
 }
 
 .event-row:hover {
+  background: var(--bg-hover);
+}
+
+/* ─── Tab button ─────────────────────────────────────────────────────────────── */
+
+.tab-btn {
+  transition:
+    background   var(--dur-fast) var(--ease-std),
+    color        var(--dur-fast) var(--ease-std),
+    box-shadow   var(--dur-fast) var(--ease-std);
+  cursor: pointer;
+}
+
+.tab-btn:hover:not(.tab-btn--active) {
   background: var(--bg-raised);
+  color: var(--ink-md);
 }
 
 /* ─── Job link ───────────────────────────────────────────────────────────────── */
@@ -208,7 +230,7 @@ body {
 }
 
 .job-link:hover {
-  color: var(--green) !important;
+  color: var(--blue) !important;
 }
 
 /* ─── Scrollbars ────────────────────────────────────────────────────────────── */
@@ -220,4 +242,4 @@ body {
 
 ::-webkit-scrollbar-track  { background: transparent; }
 ::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: oklch(0.30 0.008 252); }
+::-webkit-scrollbar-thumb:hover { background: oklch(0.78 0.008 252); }
