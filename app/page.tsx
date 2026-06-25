@@ -1,65 +1,151 @@
-import Image from "next/image";
+import type { DashboardPayload, LearningsPayload } from '@/lib/types';
+import { Dashboard } from '@/components/Dashboard';
+
+const MOCK_LEARNINGS: LearningsPayload = {
+  overallAcceptanceRate: 0,
+  totalDecisions: 0,
+  categories: [],
+  recentAdjustments: [],
+};
+
+const MOCK: DashboardPayload = {
+  revenueCents: 8750,
+  counts: { found: 12, awaiting: 2, charged: 3, skipped: 4 },
+  learnings: MOCK_LEARNINGS,
+  events: [
+    {
+      id: 'e1',
+      agent: 'scout',
+      action: 'Found job',
+      detail: 'Write a product description for SaaS landing page',
+      job_id: 'j1',
+      created_at: new Date(Date.now() - 30000).toISOString(),
+    },
+    {
+      id: 'e2',
+      agent: 'worker',
+      action: 'Assessed job',
+      detail: 'Can deliver: copywriting task within scope',
+      job_id: 'j1',
+      created_at: new Date(Date.now() - 25000).toISOString(),
+    },
+    {
+      id: 'e3',
+      agent: 'worker',
+      action: 'Drafted deliverable',
+      detail: '250-word product description ready for review',
+      job_id: 'j1',
+      created_at: new Date(Date.now() - 20000).toISOString(),
+    },
+    {
+      id: 'e4',
+      agent: 'manager',
+      action: 'Queued for approval',
+      detail: 'Fee: $5.00',
+      job_id: 'j1',
+      created_at: new Date(Date.now() - 15000).toISOString(),
+    },
+    {
+      id: 'e5',
+      agent: 'finance',
+      action: 'Invoice sent',
+      detail: 'PayPal sandbox -- $3.50 collected',
+      job_id: 'j3',
+      created_at: new Date(Date.now() - 60000).toISOString(),
+    },
+    {
+      id: 'e6',
+      agent: 'scout',
+      action: 'Scanned r/forhire',
+      detail: '8 new posts reviewed',
+      job_id: null,
+      created_at: new Date(Date.now() - 90000).toISOString(),
+    },
+    {
+      id: 'e7',
+      agent: 'worker',
+      action: 'Skipped job',
+      detail: 'Requires human expertise: legal document review',
+      job_id: 'j5',
+      created_at: new Date(Date.now() - 120000).toISOString(),
+    },
+  ],
+  jobs: [
+    {
+      id: 'j1',
+      source: 'reddit',
+      source_url: 'https://reddit.com/r/forhire/1',
+      title: 'Write product description for SaaS landing page',
+      body: 'Need a 200-250 word product description...',
+      budget_text: '$5',
+      status: 'awaiting_approval',
+      reasoning: 'Copywriting within AI capability',
+      deliverable:
+        'Introducing the platform that turns raw customer feedback into actionable product insights -- automatically.\n\nBuried in user interviews, support tickets, and NPS comments is the signal your team needs to build the right thing. Our platform ingests it all, clusters it by theme, and surfaces the top priorities your customers actually care about -- ranked by frequency and sentiment.\n\nNo more spreadsheets. No more hours lost tagging tickets. Just clear, prioritized insight you can take straight into your next sprint.\n\nTeams using our platform ship features their users ask for, reduce churn by catching frustration early, and spend less time guessing what to build next.\n\nFree to try. Takes 5 minutes to connect your first data source.',
+      fee_cents: 500,
+      created_at: new Date(Date.now() - 30000).toISOString(),
+      updated_at: new Date(Date.now() - 20000).toISOString(),
+    },
+    {
+      id: 'j2',
+      source: 'reddit',
+      source_url: 'https://reddit.com/r/forhire/2',
+      title: 'Quick data entry task - CSV cleanup',
+      body: 'Need someone to clean up a CSV file...',
+      budget_text: '$3',
+      status: 'awaiting_approval',
+      reasoning: 'Data processing task AI can handle',
+      deliverable:
+        'I can clean and restructure your CSV. Please share the file. I will: remove duplicate rows, standardise date formats, fix inconsistent capitalisations, and fill in obvious blanks from context. You will get back a clean file within the hour.',
+      fee_cents: 300,
+      created_at: new Date(Date.now() - 45000).toISOString(),
+      updated_at: new Date(Date.now() - 10000).toISOString(),
+    },
+    {
+      id: 'j3',
+      source: 'reddit',
+      source_url: 'https://reddit.com/r/forhire/3',
+      title: 'Write 5 cold email templates',
+      body: 'Looking for cold email templates for B2B outreach...',
+      budget_text: '$10',
+      status: 'charged',
+      reasoning: 'Email copywriting within scope',
+      deliverable: null,
+      fee_cents: 350,
+      created_at: new Date(Date.now() - 300000).toISOString(),
+      updated_at: new Date(Date.now() - 60000).toISOString(),
+    },
+    {
+      id: 'j4',
+      source: 'reddit',
+      source_url: 'https://reddit.com/r/forhire/4',
+      title: 'Legal contract review needed',
+      body: 'Need a lawyer to review my freelance contract...',
+      budget_text: '$50',
+      status: 'skipped',
+      reasoning: 'Requires licensed legal professional -- outside AI scope',
+      deliverable: null,
+      fee_cents: null,
+      created_at: new Date(Date.now() - 400000).toISOString(),
+      updated_at: new Date(Date.now() - 350000).toISOString(),
+    },
+    {
+      id: 'j5',
+      source: 'reddit',
+      source_url: 'https://reddit.com/r/forhire/5',
+      title: 'Python script for web scraping',
+      body: 'Need a scraper for product prices...',
+      budget_text: '$15',
+      status: 'approved',
+      reasoning: 'Code generation within scope',
+      deliverable: 'Script delivered.',
+      fee_cents: 250,
+      created_at: new Date(Date.now() - 500000).toISOString(),
+      updated_at: new Date(Date.now() - 200000).toISOString(),
+    },
+  ],
+};
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+  return <Dashboard initial={MOCK} />;
 }
