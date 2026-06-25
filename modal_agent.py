@@ -19,7 +19,6 @@ import base64
 import json
 import os
 import re
-import random
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -490,7 +489,7 @@ def assemble_email(llm_body: str, director: Optional[str]) -> str:
     return f"{salutation}\n\n{clean_body}\n\n{signoff}"
 
 
-def build_prompt(title: str, body: str, budget_text: Optional[str]) -> str:
+def build_prompt(title: str, body: str, budget_text: Optional[str], fee_pounds: float) -> str:
     return f"""You are an autonomous agent that helps UK small businesses avoid late filing penalties at Companies House.
 
 A company has been flagged with an upcoming or overdue accounts filing deadline. Your job is to write the BODY of a professional, warm filing reminder on behalf of Hands Off, a filing service.
@@ -506,7 +505,7 @@ The body must:
 1. State the company name and number, then clearly say whether accounts are overdue by approximately N days, or due on a specific date.
 2. Name the penalty they risk: quote the exact £ figure from the lead details (e.g. £375 for 1-3 months late). Be direct about what they face if they miss the deadline.
 3. In a single natural sentence, mention the documents they will need: profit and loss statement, balance sheet, director's report, and notes to the accounts.
-4. Offer help with a line like: "If you would like, we can prepare and file this on your behalf for less than 5% of the penalty."
+4. Offer help with a concrete line naming the exact fee and penalty. The service fee is £{fee_pounds:.2f}. For example: "we can prepare and file this for you for £{fee_pounds:.2f}, just 5% of the penalty." Use the exact penalty £ figure from the lead details.
 
 Rules:
 - Do NOT include any salutation or sign-off — those are added by the system.
@@ -520,28 +519,45 @@ Respond with a JSON object matching this exact schema:
   "decision": "fulfil",
   "reasoning": "1-2 sentences on why this lead is worth pursuing",
   "deliverable": "the body paragraphs only (no salutation, no sign-off)",
-  "feeCents": a number between 2000 and 5000
 }}
 
 Always set decision to "fulfil" for Companies House leads — every company with an overdue or imminent deadline is a valid prospect."""
 
 
-def random_fee_cents() -> int:
-    return random.randint(2000, 5000)
+PENALTY_PENCE_MAP = {
+    "£150": 15000,
+    "£375": 37500,
+    "£750": 75000,
+    "£1,500": 150000,
+}
 
 
-def parse_llm_response(obj: dict, director: Optional[str]) -> dict:
-    """Parse the LLM JSON into a worker decision dict with assembled email."""
+def fee_cents_from_penalty_band(band: str) -> int:
+    """Return 5% of the penalty amount in pence, rounded to nearest penny.
+
+    Accepts the string produced by penalty_band(), e.g. '£375 (1-3 months late)'.
+    Defaults to the £150 first band for companies not yet overdue ('no penalty yet').
+    """
+    for marker, pence in PENALTY_PENCE_MAP.items():
+        if marker in band:
+            return round(pence * 0.05)
+    # 'no penalty yet' (due soon, not overdue) -> use £150 first band as basis
+    return round(15000 * 0.05)  # 750 pence = £7.50
+
+
+def parse_llm_response(obj: dict, director: Optional[str], penalty_band_str: str) -> dict:
+    """Parse the LLM JSON into a worker decision dict with assembled email.
+
+    fee_cents is derived deterministically from the penalty band (5% of penalty),
+    never from the LLM's feeCents field or any random value.
+    """
     decision = "fulfil" if obj.get("decision") == "fulfil" else "skip"
     reasoning = str(obj.get("reasoning", "No reasoning provided."))
 
     if decision == "fulfil":
         llm_body = str(obj.get("deliverable", ""))
         deliverable = assemble_email(llm_body, director)
-        try:
-            fee_cents = max(2000, min(5000, int(obj.get("feeCents", 0))))
-        except (TypeError, ValueError):
-            fee_cents = random_fee_cents()
+        fee_cents = fee_cents_from_penalty_band(penalty_band_str)
         return {"decision": "fulfil", "reasoning": reasoning,
                 "deliverable": deliverable, "fee_cents": fee_cents}
 
@@ -578,16 +594,17 @@ async def call_llm(prompt: str) -> Optional[dict]:
 
 
 async def evaluate_job_llm(title: str, body: str, budget_text: Optional[str],
-                           director: Optional[str]) -> dict:
+                           director: Optional[str], penalty_band_str: str) -> dict:
     """Evaluate a job via LLM. Skips the job (never fabricates) if LLM is unavailable."""
-    prompt = build_prompt(title, body, budget_text)
+    fee_pounds = fee_cents_from_penalty_band(penalty_band_str) / 100
+    prompt = build_prompt(title, body, budget_text, fee_pounds)
     raw = await call_llm(prompt)
     if raw is None:
         return {
             "decision": "skip",
             "reasoning": "LLM unavailable or returned invalid JSON — skipping this tick.",
         }
-    return parse_llm_response(raw, director)
+    return parse_llm_response(raw, director, penalty_band_str)
 
 
 # ---------------------------------------------------------------------------
@@ -667,13 +684,26 @@ async def process_job(db: SupabaseClient, job: dict):
             director = job_body[len("DIRECTOR: "):newline_idx].strip() or None
             job_body = job_body[newline_idx + 1:]
 
-    result = await evaluate_job_llm(job["title"], job_body, job.get("budget_text"), director)
+    # Derive penalty band from job body for deterministic fee calculation
+    job_penalty_band = "no penalty yet"
+    for band_marker in ("£1,500", "£750", "£375", "£150"):
+        if band_marker in job_body:
+            # Reconstruct band string matching penalty_band() output
+            band_map = {
+                "£150": "£150 (up to 1 month late)",
+                "£375": "£375 (1-3 months late)",
+                "£750": "£750 (3-6 months late)",
+                "£1,500": "£1,500 (6+ months late)",
+            }
+            job_penalty_band = band_map[band_marker]
+            break
 
-    final_fee = result.get("fee_cents", 3000)
-    if result["decision"] == "fulfil":
-        learned = await get_learned_fee(db, category)
-        if learned is not None:
-            final_fee = learned
+    result = await evaluate_job_llm(
+        job["title"], job_body, job.get("budget_text"), director, job_penalty_band
+    )
+
+    # Fee is deterministic: 5% of the penalty band (set inside evaluate_job_llm)
+    final_fee = result.get("fee_cents", fee_cents_from_penalty_band(job_penalty_band))
 
     new_status = "approved" if result["decision"] == "fulfil" else "skipped"
     await db.update("jobs", {"id": f"eq.{job_id}"}, {
@@ -684,11 +714,9 @@ async def process_job(db: SupabaseClient, job: dict):
     })
 
     if result["decision"] == "fulfil":
-        used_learned = (result.get("fee_cents", final_fee) != final_fee)
-        price_note = f" (learned price for {category.replace('-', ' ')})" if used_learned else ""
         await log_event(
             db, "worker", "fulfilled",
-            f"Drafted deliverable. Fee: £{final_fee / 100:.2f}{price_note}. "
+            f"Drafted deliverable. Fee: £{final_fee / 100:.2f} (5% of penalty). "
             f"Billing automatically. Reason: {result['reasoning']}",
             job_id=job_id,
         )
@@ -877,10 +905,27 @@ async def run_finance_queue(db: SupabaseClient):
 # Main tick: Scout -> Worker -> Finance
 # ---------------------------------------------------------------------------
 
+async def is_paused(db: SupabaseClient) -> bool:
+    """Return True if agent_control.paused = true. Defaults to False on any error."""
+    try:
+        rows = await db.select("agent_control", {"id": "eq.1"}, "paused")
+        return bool(rows and rows[0].get("paused"))
+    except Exception as e:
+        print(f"[tick] is_paused check failed (defaulting to unpaused): {e}")
+        return False
+
+
 async def tick():
     """One full pipeline iteration. Never raises."""
     db = make_db()
     print(f"[tick] Starting at {datetime.now(timezone.utc).isoformat()}")
+
+    if await is_paused(db):
+        await log_event(db, "manager", "paused",
+                        "Loop paused by operator — skipping tick.")
+        print("[tick] Paused — skipping scout/worker/finance.")
+        return
+
     for name, fn in [("scout", run_scout), ("worker", run_worker), ("finance", run_finance_queue)]:
         try:
             await fn(db)
