@@ -101,7 +101,10 @@ export async function createInvoice(params: {
     }
 
     const created = await createRes.json();
-    const invoiceId: string = created.id ?? `PP-INV-${Date.now()}`;
+    // PayPal returns the new invoice id inside the self `href` link, not a top-level `id`.
+    const hrefId =
+      typeof created.href === "string" ? created.href.split("/").pop() : undefined;
+    const invoiceId: string = created.id ?? hrefId ?? `PP-INV-${Date.now()}`;
 
     // Optionally send (activates the invoice); ignore failures
     try {

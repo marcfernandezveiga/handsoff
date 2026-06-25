@@ -451,7 +451,7 @@ export async function runFinance(jobId: string): Promise<void> {
   await logEvent({
     agent: "finance",
     action: "charged",
-    detail: `Invoice ${invoice.invoiceId} created${simNote}. $${((job.fee_cents ?? 0) / 100).toFixed(2)} collected.`,
+    detail: `Invoice ${invoice.invoiceId} created${simNote}. £${((job.fee_cents ?? 0) / 100).toFixed(2)} billed.`,
     job_id: jobId,
   });
 }
