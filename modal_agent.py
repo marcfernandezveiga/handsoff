@@ -307,7 +307,8 @@ def build_demand_item(profile: dict, director: Optional[str]) -> Optional[dict]:
     is_overdue = accounts.get("overdue", False)
     days = days_until(raw_next_due)
 
-    if not (days <= 30 or is_overdue):
+    # 120-day window: overdue OR due within 120 days
+    if not (is_overdue or days <= 120):
         return None
 
     days_overdue = abs(days) if is_overdue else 0
@@ -316,18 +317,22 @@ def build_demand_item(profile: dict, director: Optional[str]) -> Optional[dict]:
 
     if is_overdue:
         status_line = f"Accounts are OVERDUE by approximately {days_overdue} day(s)."
+        penalty_line = f"Current penalty band: {penalty}"
     else:
         status_line = f"Accounts are due in {days} day(s) ({due_date_fmt})."
+        # Not yet overdue: they risk the £150 first-band penalty if they miss the deadline
+        penalty_line = "Penalty at risk if deadline missed: £150 (first month late)"
 
     title = f"{company_name} accounts due {due_date_fmt}"
     body = " ".join([
         f"Company: {company_name} ({company_number})",
         status_line,
-        f"Current penalty band: {penalty}",
+        penalty_line,
         "Filing requirements: profit & loss statement, balance sheet, director's report, notes to the accounts.",
         "Late filing can result in automatic penalties and, if persistent, compulsory strike-off.",
     ])
 
+    # budget_text carries the actual overdue penalty for the Worker; None for due-soon
     budget_text = penalty.split(" ")[0] if is_overdue else None
     ch_url = f"https://find-and-update.company-information.service.gov.uk/company/{company_number}"
 
@@ -352,22 +357,53 @@ async def fetch_ch_demand() -> list:
     common_headers = {"Authorization": auth_header, "Accept": "application/json"}
 
     try:
-        # Step 1: search for active companies.
-        # Use a random start_index each tick so we scan a different slice of the
-        # register every minute and discover new overdue companies instead of
-        # hitting the same 50 records repeatedly.
-        start_index = random.randint(0, 8000)
+        # Step 1: search for active English companies via a RANDOMISED incorporation
+        # date window.  The old approach (random start_index 0-8000 with no date
+        # filter) returned only NI/SL-prefixed entities whose accounts.next_due is
+        # almost always None.  Filtering by incorporation date returns normal 8-digit
+        # English companies with real filing deadlines.
+        #
+        # Window: roughly 2014-01-01 .. 2024-09-01 (old enough to have a deadline,
+        # recent enough to still be active).  Pick a random 3-month sub-window each
+        # tick for variety, plus a small random start_index within the filtered set.
+        from datetime import date, timedelta
+
+        WINDOW_START = date(2014, 1, 1)
+        WINDOW_END   = date(2024, 9, 1)
+        total_days   = (WINDOW_END - WINDOW_START).days  # ~3896 days
+
+        # Pick a random start inside the available range, leaving room for 90-day window
+        rand_offset  = random.randint(0, total_days - 90)
+        inc_from     = WINDOW_START + timedelta(days=rand_offset)
+        inc_to       = inc_from + timedelta(days=random.randint(60, 90))
+        if inc_to > WINDOW_END:
+            inc_to = WINDOW_END
+
+        # Small random start_index (0-300) for extra variety within the date-filtered set
+        start_index = random.randint(0, 300)
+
+        inc_from_str = inc_from.isoformat()
+        inc_to_str   = inc_to.isoformat()
+        print(f"[scout] incorporated_from={inc_from_str} incorporated_to={inc_to_str} start_index={start_index}")
+
         async with httpx.AsyncClient(timeout=CH_TIMEOUT) as client:
             r = await client.get(
                 f"{CH_BASE}/advanced-search/companies",
                 headers=common_headers,
-                params={"status": "active", "size": "50", "start_index": str(start_index)},
+                params={
+                    "company_status": "active",
+                    "incorporated_from": inc_from_str,
+                    "incorporated_to": inc_to_str,
+                    "size": "100",
+                    "start_index": str(start_index),
+                },
             )
         if not r.is_success:
-            print(f"[scout] CH search failed: {r.status_code}")
+            print(f"[scout] CH search failed: {r.status_code} {r.text[:200]}")
             return []
 
         companies = r.json().get("items", [])
+        print(f"[scout] CH returned {len(companies)} companies for window {inc_from_str}..{inc_to_str}")
         if not companies:
             return []
 
@@ -388,10 +424,23 @@ async def fetch_ch_demand() -> list:
         profile_tasks = [lambda c=c: fetch_profile(c) for c in companies]
         profiles = await p_limit(profile_tasks, CH_CONCURRENCY)
 
-        # Step 3: filter eligible profiles and fetch directors
+        # Step 3: filter eligible profiles and fetch directors.
+        # Guard: only keep companies whose profile reports company_status == "active".
+        # The advanced-search uses company_status=active but the per-company profile is
+        # the source of truth -- a company can transition to dissolved/liquidation between
+        # the search and the profile fetch, so we re-check here explicitly.
+        # Keep window at 120 days: reminding companies BEFORE deadline is the core product.
         eligible = []
         for profile in profiles:
             if not profile:
+                continue
+            company_status = profile.get("company_status", "")
+            if company_status != "active":
+                print(
+                    f"[scout] Skipping {profile.get('company_name', '?')} "
+                    f"({profile.get('company_number', '?')}): "
+                    f"company_status='{company_status}' (not active)"
+                )
                 continue
             accounts = profile.get("accounts", {})
             next_due = accounts.get("next_due", "")
@@ -399,7 +448,8 @@ async def fetch_ch_demand() -> list:
                 continue
             days = days_until(next_due)
             is_overdue = accounts.get("overdue", False)
-            if days <= 30 or is_overdue:
+            # 120-day window: overdue OR due within the next 120 days
+            if is_overdue or days <= 120:
                 eligible.append(profile)
 
         async def fetch_and_build(profile: dict):
@@ -496,6 +546,27 @@ def assemble_email(llm_body: str, director: Optional[str]) -> str:
 
 
 def build_prompt(title: str, body: str, budget_text: Optional[str], fee_pounds: float) -> str:
+    is_overdue = "OVERDUE" in body
+    if is_overdue:
+        timing_instruction = (
+            "The accounts are OVERDUE. Say how many days overdue and name the exact "
+            "current penalty band (e.g. '£375 for 1-3 months late'). Be direct."
+        )
+        offer_line = (
+            f"Offer help: 'We can prepare and file this for you for £{fee_pounds:.2f}, "
+            f"just 5% of your current penalty.' Use the exact penalty £ figure from the lead."
+        )
+    else:
+        timing_instruction = (
+            "The accounts are NOT yet overdue -- they have an upcoming deadline. "
+            "State the exact due date. Warn them that missing it triggers a £150 first-band "
+            "penalty and potentially more if they fall further behind."
+        )
+        offer_line = (
+            f"Offer help: 'We can prepare and file this before the deadline for £{fee_pounds:.2f}, "
+            f"just 5% of the £150 penalty you would otherwise face.'"
+        )
+
     return f"""You are an autonomous agent that helps UK small businesses avoid late filing penalties at Companies House.
 
 A company has been flagged with an upcoming or overdue accounts filing deadline. Your job is to write the BODY of a professional, warm filing reminder on behalf of Hands Off, a filing service.
@@ -508,13 +579,13 @@ Details:
 Write ONLY the middle body paragraphs of the email. Do NOT include a salutation (no "Dear ...") and do NOT include a sign-off (no "Best regards" or any closing). The salutation and sign-off will be added in code.
 
 The body must:
-1. State the company name and number, then clearly say whether accounts are overdue by approximately N days, or due on a specific date.
-2. Name the penalty they risk: quote the exact £ figure from the lead details (e.g. £375 for 1-3 months late). Be direct about what they face if they miss the deadline.
+1. State the company name and number.
+2. {timing_instruction}
 3. In a single natural sentence, mention the documents they will need: profit and loss statement, balance sheet, director's report, and notes to the accounts.
-4. Offer help with a concrete line naming the exact fee and penalty. The service fee is £{fee_pounds:.2f}. For example: "we can prepare and file this for you for £{fee_pounds:.2f}, just 5% of the penalty." Use the exact penalty £ figure from the lead details.
+4. {offer_line}
 
 Rules:
-- Do NOT include any salutation or sign-off — those are added by the system.
+- Do NOT include any salutation or sign-off -- those are added by the system.
 - Do NOT write any text in square brackets like [Your Name] or [Company Name] or [Director]. Write real content only.
 - No em dashes. Use a comma or rewrite the sentence instead.
 - No AI-slop words: seamless, elevate, leverage, synergy, game-changer, cutting-edge, transform, unlock, empower.
@@ -527,7 +598,7 @@ Respond with a JSON object matching this exact schema:
   "deliverable": "the body paragraphs only (no salutation, no sign-off)",
 }}
 
-Always set decision to "fulfil" for Companies House leads — every company with an overdue or imminent deadline is a valid prospect."""
+Always set decision to "fulfil" for Companies House leads -- every company with an overdue or imminent deadline is a valid prospect."""
 
 
 PENALTY_PENCE_MAP = {
