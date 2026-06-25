@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 interface Props {
-  revenueCents: number;
+  earnedCents: number;
+  invoicedCents: number;
   jobsDone: number;
   paused: boolean;
   onTogglePause: () => void;
@@ -14,19 +15,19 @@ function formatRevenue(cents: number): string {
   return `£${pounds}`;
 }
 
-export function Header({ revenueCents, jobsDone, paused, onTogglePause }: Props) {
-  const prevRevenue = useRef(revenueCents);
+export function Header({ earnedCents, invoicedCents, jobsDone, paused, onTogglePause }: Props) {
+  const prevEarned = useRef(earnedCents);
   const [bumped, setBumped] = useState(false);
 
   useEffect(() => {
-    if (revenueCents > prevRevenue.current) {
+    if (earnedCents > prevEarned.current) {
       setBumped(true);
       const t = setTimeout(() => setBumped(false), 500);
-      prevRevenue.current = revenueCents;
+      prevEarned.current = earnedCents;
       return () => clearTimeout(t);
     }
-    prevRevenue.current = revenueCents;
-  }, [revenueCents]);
+    prevEarned.current = earnedCents;
+  }, [earnedCents]);
 
   return (
     <header
@@ -147,7 +148,28 @@ export function Header({ revenueCents, jobsDone, paused, onTogglePause }: Props)
         </span>
       </div>
 
-      {/* Revenue -- the headline */}
+      {/* Invoiced (grey, secondary) */}
+      <div
+        className="flex flex-col items-end gap-0.5 shrink-0"
+        style={{ borderRight: '1px solid var(--border)', paddingRight: '1.5rem' }}
+      >
+        <span
+          className="font-mono font-bold tabular-nums leading-none"
+          style={{
+            color: 'var(--ink-md)',
+            fontFamily: 'var(--font-geist-mono)',
+            fontSize: 'clamp(1rem, 1.75vw, 1.375rem)',
+            letterSpacing: '-0.02em',
+          }}
+        >
+          {formatRevenue(invoicedCents)}
+        </span>
+        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
+          invoiced, awaiting payment
+        </span>
+      </div>
+
+      {/* Earned (green, headline) */}
       <div className="flex flex-col items-end gap-0.5 shrink-0">
         <span
           className={`font-mono font-bold tabular-nums leading-none ${bumped ? 'revenue-bump' : ''}`}
@@ -158,10 +180,10 @@ export function Header({ revenueCents, jobsDone, paused, onTogglePause }: Props)
             letterSpacing: '-0.03em',
           }}
         >
-          {formatRevenue(revenueCents)}
+          {formatRevenue(earnedCents)}
         </span>
         <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-          invoiced, awaiting payment
+          earned
         </span>
       </div>
     </header>

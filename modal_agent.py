@@ -58,6 +58,7 @@ WORKER_CONCURRENCY = 4  # max simultaneous LLM calls
 
 PAYPAL_BASE = "https://api-m.sandbox.paypal.com"
 PAYPAL_TIMEOUT = 12.0   # seconds per PayPal API call
+RECONCILE_BATCH = 40    # max invoices to check per tick
 
 LLM_TIMEOUT = 30.0      # seconds for LLM inference (Modal cold starts can be slow)
 
@@ -1094,6 +1095,10 @@ async def run_finance_single(db: SupabaseClient, job_id: str):
     await db.update("jobs", {"id": f"eq.{job_id}"},
                     {"deliverable": current_deliverable + payment_line})
 
+    # Persist the invoice_id so the reconciler can poll its status
+    await db.update("jobs", {"id": f"eq.{job_id}"},
+                    {"invoice_id": invoice["invoice_id"]})
+
     sim_note = " (simulated — no PayPal credentials)" if invoice["simulated"] else ""
     await log_event(
         db, "finance", "charged",
@@ -1155,6 +1160,93 @@ async def run_finance_single(db: SupabaseClient, job_id: str):
     await record_learning(db, job_id, category, "approved", fee_cents)
 
 
+async def reconcile_payments(db: SupabaseClient):
+    """Poll PayPal for payment status on all charged-but-unpaid invoices.
+
+    Selects up to RECONCILE_BATCH jobs where status='charged', paid=false, invoice_id is set.
+    For each, hits GET /v2/invoicing/invoices/{id} and checks status field.
+    On PAID / MARKED_AS_PAID: flips paid=true, sets paid_cents, logs finance/payment_received.
+    Wrapped in try/except so it never breaks the tick.
+    """
+    client_id = os.environ.get("PAYPAL_CLIENT_ID", "")
+    secret = os.environ.get("PAYPAL_SECRET", "")
+
+    if not (client_id and secret):
+        print("[reconcile] No PayPal credentials — skipping reconciliation")
+        return
+
+    try:
+        rows = await db.select(
+            "jobs",
+            {"status": "eq.charged", "paid": "eq.false", "invoice_id": "not.is.null"},
+            "id,invoice_id,fee_cents",
+            order="created_at.asc",
+            limit=RECONCILE_BATCH,
+        )
+    except Exception as e:
+        print(f"[reconcile] Failed to fetch unpaid jobs: {e}")
+        return
+
+    if not rows:
+        return
+
+    try:
+        token = await _get_paypal_token(client_id, secret)
+    except Exception as e:
+        print(f"[reconcile] Could not obtain PayPal token: {e}")
+        return
+
+    async def check_invoice(row: dict):
+        job_id = row["id"]
+        invoice_id = row["invoice_id"]
+        try:
+            async with httpx.AsyncClient(timeout=PAYPAL_TIMEOUT) as client:
+                r = await client.get(
+                    f"{PAYPAL_BASE}/v2/invoicing/invoices/{invoice_id}",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            if not r.is_success:
+                print(f"[reconcile] Invoice GET {invoice_id}: {r.status_code}")
+                return
+
+            data = r.json()
+            status = data.get("status", "")
+            if status not in ("PAID", "MARKED_AS_PAID"):
+                return
+
+            # Prefer the actual paid amount from the invoice; fall back to fee_cents
+            paid_amount = None
+            try:
+                paid_amount = data.get("amount", {}).get("value")
+                if paid_amount:
+                    paid_amount = round(float(paid_amount) * 100)
+            except Exception:
+                pass
+            paid_cents = paid_amount or row.get("fee_cents") or 0
+
+            await db.update("jobs", {"id": f"eq.{job_id}"}, {
+                "paid": True,
+                "paid_cents": paid_cents,
+            })
+            pounds = paid_cents / 100
+            await log_event(
+                db, "finance", "payment_received",
+                f"Payment received: £{pounds:.2f} via PayPal (invoice {invoice_id}).",
+                job_id=job_id,
+            )
+            print(f"[reconcile] job {job_id} marked paid: £{pounds:.2f}")
+
+        except Exception as e:
+            print(f"[reconcile] error checking invoice {invoice_id}: {e}")
+
+    tasks = [lambda r=r: check_invoice(r) for r in rows]
+    await p_limit(tasks, 5)
+    print(f"[reconcile] Checked {len(rows)} invoice(s)")
+
+
 async def run_finance_queue(db: SupabaseClient):
     """Bill all jobs in 'approved' state. Each call is idempotent via atomic claim."""
     rows = await db.select("jobs", {"status": "eq.approved"}, "id")
@@ -1189,7 +1281,12 @@ async def tick():
         print("[tick] Paused — skipping scout/worker/finance.")
         return
 
-    for name, fn in [("scout", run_scout), ("worker", run_worker), ("finance", run_finance_queue)]:
+    for name, fn in [
+        ("scout", run_scout),
+        ("worker", run_worker),
+        ("finance", run_finance_queue),
+        ("reconcile", reconcile_payments),
+    ]:
         try:
             await fn(db)
         except Exception as e:

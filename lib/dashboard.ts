@@ -12,6 +12,8 @@ export async function getDashboardData(): Promise<DashboardPayload> {
       jobs: [],
       events: [],
       revenueCents: 0,
+      invoicedCents: 0,
+      earnedCents: 0,
       counts: { found: 0, awaiting: 0, charged: 0, skipped: 0 },
       learnings: {
         overallAcceptanceRate: 0,
@@ -44,10 +46,20 @@ export async function getDashboardData(): Promise<DashboardPayload> {
     .filter((j) => j.status === "charged")
     .reduce((sum, j) => sum + (j.fee_cents ?? 0), 0);
 
+  // invoicedCents = all billed (charged) regardless of payment status
+  const invoicedCents = revenueCents;
+
+  // earnedCents = only jobs confirmed paid via PayPal
+  const earnedCents = jobs
+    .filter((j) => j.paid === true)
+    .reduce((sum, j) => sum + (j.paid_cents ?? 0), 0);
+
   return {
     jobs,
     events,
     revenueCents,
+    invoicedCents,
+    earnedCents,
     counts: {
       found: jobs.filter((j) => j.status === "found").length,
       awaiting: jobs.filter((j) => j.status === "awaiting_approval").length,

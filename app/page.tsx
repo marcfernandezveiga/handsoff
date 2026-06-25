@@ -13,6 +13,8 @@ export default async function Home() {
       jobs: [],
       events: [],
       revenueCents: 0,
+      invoicedCents: 0,
+      earnedCents: 0,
       counts: { found: 0, awaiting: 0, charged: 0, skipped: 0 },
       learnings: {
         overallAcceptanceRate: 0,
