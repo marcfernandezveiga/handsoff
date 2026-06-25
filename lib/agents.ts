@@ -167,12 +167,17 @@ export async function runScout(): Promise<void> {
       const exists = mockJobs.some((j) => j.source_url === post.source_url);
       if (exists) { dupes++; continue; }
 
+      // Embed director name in body so the worker can use it without a schema change.
+      const bodyWithDirector = post.director
+        ? `DIRECTOR: ${post.director}\n${post.body}`
+        : post.body;
+
       const newJob: Job = {
         id: `mock-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         source: post.source,
         source_url: post.source_url,
         title: post.title,
-        body: post.body,
+        body: bodyWithDirector,
         budget_text: post.budget_text,
         status: "found",
         reasoning: null,
@@ -196,11 +201,16 @@ export async function runScout(): Promise<void> {
 
     for (const post of posts) {
       try {
+        // Embed director name in body so the worker can use it without a schema change.
+        const bodyWithDirector = post.director
+          ? `DIRECTOR: ${post.director}\n${post.body}`
+          : post.body;
+
         const { error } = await db.from("jobs").insert({
           source: post.source,
           source_url: post.source_url,
           title: post.title,
-          body: post.body,
+          body: bodyWithDirector,
           budget_text: post.budget_text,
           status: "found",
         });
@@ -316,10 +326,22 @@ export async function runWorker(): Promise<void> {
         continue;
       }
 
+      // Extract director name embedded by scout (format: "DIRECTOR: Name\n...")
+      let director: string | undefined;
+      let jobBody = job.body;
+      if (jobBody.startsWith("DIRECTOR: ")) {
+        const newlineIdx = jobBody.indexOf("\n");
+        if (newlineIdx !== -1) {
+          director = jobBody.slice("DIRECTOR: ".length, newlineIdx).trim() || undefined;
+          jobBody = jobBody.slice(newlineIdx + 1);
+        }
+      }
+
       const result = await evaluateJob({
         title: job.title,
-        body: job.body,
+        body: jobBody,
         budget_text: job.budget_text,
+        director,
       });
 
       // Override fee with learned price for this category if we have one
@@ -433,25 +455,37 @@ export async function runFinance(jobId: string): Promise<void> {
     feeCents: job.fee_cents ?? 500,
   });
 
+  // Append the PayPal payer URL to the deliverable so the email contains a real pay link.
+  const feePounds = ((job.fee_cents ?? 0) / 100).toFixed(2);
+  const paymentLine = invoice.invoiceUrl
+    ? `\n\nService fee: £${feePounds}\nPay securely here: ${invoice.invoiceUrl}`
+    : `\n\nService fee: £${feePounds}`;
+
   if (!hasSupabaseEnv) {
     const idx = mockJobs.findIndex((j) => j.id === jobId);
     if (idx !== -1) {
+      const currentDeliverable = mockJobs[idx].deliverable ?? "";
       mockJobs[idx] = {
         ...mockJobs[idx],
         status: "charged",
+        deliverable: currentDeliverable + paymentLine,
         updated_at: new Date().toISOString(),
       };
     }
   } else {
     const db = createServiceClient();
-    await db.from("jobs").update({ status: "charged" }).eq("id", jobId);
+    const currentDeliverable = job.deliverable ?? "";
+    await db
+      .from("jobs")
+      .update({ status: "charged", deliverable: currentDeliverable + paymentLine })
+      .eq("id", jobId);
   }
 
   const simNote = invoice.simulated ? " (simulated — no PayPal credentials)" : "";
   await logEvent({
     agent: "finance",
     action: "charged",
-    detail: `Invoice ${invoice.invoiceId} created${simNote}. £${((job.fee_cents ?? 0) / 100).toFixed(2)} billed.`,
+    detail: `Invoice ${invoice.invoiceId} created${simNote}. £${feePounds} billed. Pay link appended to deliverable.`,
     job_id: jobId,
   });
 }

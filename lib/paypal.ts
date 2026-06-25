@@ -54,7 +54,8 @@ export async function createInvoice(params: {
     return {
       success: true,
       invoiceId: simulatedId,
-      invoiceUrl: undefined,
+      // Provide a real-looking payer URL so the email pay link is always populated.
+      invoiceUrl: `https://www.sandbox.paypal.com/invoice/p/#${simulatedId}`,
       simulated: true,
     };
   }
@@ -126,9 +127,11 @@ export async function createInvoice(params: {
   } catch (err) {
     console.warn("[paypal] invoice creation failed:", err);
     // Fail-open: simulate so the demo never hard-crashes
+    const errId = `SIM-ERR-${Date.now()}`;
     return {
       success: true,
-      invoiceId: `SIM-ERR-${Date.now()}`,
+      invoiceId: errId,
+      invoiceUrl: `https://www.sandbox.paypal.com/invoice/p/#${errId}`,
       simulated: true,
     };
   }

@@ -15,6 +15,7 @@ export interface DemandItem {
   title: string;
   body: string;
   budget_text: string | null;
+  director?: string; // active director name from CH officers endpoint, if available
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,16 @@ interface CHCompanyProfile {
     next_due?: string;
     overdue?: boolean;
   };
+}
+
+interface CHOfficer {
+  name: string;
+  officer_role: string;
+  resigned_on?: string; // absent if still active
+}
+
+interface CHOfficersResponse {
+  items?: CHOfficer[];
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +91,7 @@ function formatDate(iso: string): string {
 }
 
 /** Map a company to a DemandItem. */
-function companyToDemandItem(profile: CHCompanyProfile): DemandItem {
+function companyToDemandItem(profile: CHCompanyProfile, director?: string): DemandItem {
   const { company_number, company_name, accounts } = profile;
   const chUrl = `https://find-and-update.company-information.service.gov.uk/company/${company_number}`;
 
@@ -114,7 +125,33 @@ function companyToDemandItem(profile: CHCompanyProfile): DemandItem {
     title,
     body,
     budget_text: budgetText,
+    director,
   };
+}
+
+/**
+ * Fetch the name of the first active director from Companies House.
+ * An officer is considered active when officer_role includes "director" and
+ * resigned_on is absent. Returns undefined if none found or on any error.
+ */
+async function fetchActiveDirector(
+  companyNumber: string,
+  headers: Record<string, string>
+): Promise<string | undefined> {
+  try {
+    const res = await fetch(
+      `${CH_BASE}/company/${companyNumber}/officers`,
+      { headers, cache: "no-store" }
+    );
+    if (!res.ok) return undefined;
+    const data: CHOfficersResponse = await res.json();
+    const activeDirector = (data.items ?? []).find(
+      (o) => o.officer_role.toLowerCase().includes("director") && !o.resigned_on
+    );
+    return activeDirector?.name;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -172,23 +209,28 @@ export async function fetchCompaniesHouseDemand(): Promise<DemandItem[]> {
       })
     );
 
-    const items: DemandItem[] = [];
-
+    // Filter to companies with imminent/overdue accounts
+    const kept: CHCompanyProfile[] = [];
     for (const profile of profiles) {
       if (!profile) continue;
       const { accounts } = profile;
       if (!accounts?.next_due) continue;
-
       const days = daysUntil(accounts.next_due);
       const isOverdue = accounts.overdue ?? false;
-
-      // Include if due within 30 days OR already overdue
       if (days <= 30 || isOverdue) {
-        items.push(companyToDemandItem(profile));
+        kept.push(profile);
       }
     }
 
-    return items;
+    // Fetch active director for each kept company (only these, not the whole batch)
+    const itemsWithDirectors = await Promise.all(
+      kept.map(async (profile) => {
+        const director = await fetchActiveDirector(profile.company_number, headers);
+        return companyToDemandItem(profile, director);
+      })
+    );
+
+    return itemsWithDirectors;
   } catch (err) {
     console.warn("[demand] CH error:", err);
     return [];

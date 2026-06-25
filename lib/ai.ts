@@ -58,31 +58,47 @@ function buildPrompt(job: {
   title: string;
   body: string;
   budget_text: string | null;
+  director?: string;
 }): string {
+  const salutation = job.director ? `Dear ${job.director},` : "Dear Sir/Madam,";
+
   return `You are an autonomous agent that helps UK small businesses avoid late filing penalties at Companies House.
 
-A company has been flagged with an upcoming or overdue accounts filing deadline. Your job is to draft a personalised, helpful filing reminder on behalf of a professional filing service.
+A company has been flagged with an upcoming or overdue accounts filing deadline. Your job is to draft a professional, warm filing reminder on behalf of Hands Off, a filing service.
 
 Company lead:
 Title: ${job.title}
 Details:
 ${job.body.slice(0, 1200)}
 
-Draft a filing reminder that includes ALL of the following:
-1. A friendly, direct note that their accounts are due on the stated date (or are already overdue by X days).
-2. The specific penalty they risk if they do not file on time — quote the £ figure from the lead details.
-3. A short, practical checklist of what they need to prepare: profit & loss statement, balance sheet, director's report, notes to the accounts, and any relevant supplementary schedules.
-4. A brief, no-pressure offer to help them get filed on time.
+Draft a filing reminder email that follows this structure exactly:
 
-Tone: direct, practical, and helpful. Not salesy. Not corporate. Write like a knowledgeable friend who knows the rules.
+1. Open with exactly this salutation (do not change it, do not add brackets, do not invent names):
+   ${salutation}
 
-Banned words — do not use any of these: seamless, elevate, leverage, synergy, game-changer, cutting-edge, transform, unlock, empower.
+2. State the company name and number, then clearly say whether accounts are overdue by approximately N days, or due on a specific date.
+
+3. Name the penalty they risk: quote the exact £ figure from the lead details (e.g. £375 for 1-3 months late). Be direct about what they face if they miss the deadline.
+
+4. In a single natural sentence, mention the documents they will need: profit and loss statement, balance sheet, director's report, and notes to the accounts.
+
+5. Offer help with a line like: "If you would like, we can prepare and file this on your behalf for less than 5% of the penalty."
+
+6. Close professionally:
+   Best regards,
+   The Hands Off team
+
+Rules:
+- No em dashes. Use a comma or rewrite the sentence instead.
+- No brackets around any name or placeholder. The salutation is already set above.
+- No AI-slop words: seamless, elevate, leverage, synergy, game-changer, cutting-edge, transform, unlock, empower.
+- Keep it under 200 words. Concise and human.
 
 Respond with a JSON object matching this exact schema:
 {
   "decision": "fulfil",
   "reasoning": "1-2 sentences on why this lead is worth pursuing",
-  "deliverable": "the full filing reminder text, written directly to the company director",
+  "deliverable": "the full filing reminder email text, starting with the salutation",
   "feeCents": a number between 2000 and 5000
 }
 
@@ -112,6 +128,7 @@ export async function evaluateJob(job: {
   title: string;
   body: string;
   budget_text: string | null;
+  director?: string;
 }): Promise<WorkerDecision> {
   const prompt = buildPrompt(job);
 
