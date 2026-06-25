@@ -70,16 +70,19 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-// Extract company name, stripping " -- accounts due ..." suffix
+// Extract company name, stripping " accounts due ..." (or legacy " --") suffix
 function companyName(title: string): string {
-  const idx = title.indexOf(' --');
-  return idx > -1 ? title.slice(0, idx) : title;
+  const accountsIdx = title.search(/ accounts due /i);
+  if (accountsIdx > -1) return title.slice(0, accountsIdx);
+  const dashIdx = title.indexOf(' --');
+  if (dashIdx > -1) return title.slice(0, dashIdx);
+  return title;
 }
 
-// Extract "accounts due DATE" portion
-function duePart(title: string): string | null {
-  const m = title.match(/accounts due (.+)/i);
-  return m ? `Due ${m[1]}` : null;
+// Extract just the date string from "... accounts due DATE"
+function dueDate(title: string): string | null {
+  const m = title.match(/ accounts due (.+)/i);
+  return m ? m[1].trim() : null;
 }
 
 export function JobsTable({ jobs }: Props) {
@@ -109,6 +112,7 @@ export function JobsTable({ jobs }: Props) {
           <tr style={{ borderBottom: '1px solid var(--border)' }}>
             {[
               { label: 'Company', width: 'auto' },
+              { label: 'Due date', width: '9rem' },
               { label: 'Status', width: '10rem' },
               { label: 'Penalty at risk', width: '9rem' },
               { label: 'Fee earned', width: '8rem' },
@@ -133,7 +137,7 @@ export function JobsTable({ jobs }: Props) {
           {sorted.map((job) => {
             const isExpanded = expandedId === job.id;
             const company = companyName(job.title);
-            const due = duePart(job.title);
+            const due = dueDate(job.title);
             const hasReminder = Boolean(job.deliverable);
 
             return (
@@ -148,24 +152,28 @@ export function JobsTable({ jobs }: Props) {
                 >
                   {/* Company */}
                   <td className="px-5 py-3.5">
-                    <div className="flex flex-col gap-0.5">
-                      <a
-                        href={job.source_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="job-link font-semibold leading-snug line-clamp-1"
-                        style={{ color: 'var(--ink-hi)', fontSize: '0.875rem' }}
-                        title={job.title}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {company}
-                      </a>
-                      {due && (
-                        <span className="text-xs" style={{ color: 'var(--ink-lo)' }}>
-                          {due}
-                        </span>
-                      )}
-                    </div>
+                    <a
+                      href={job.source_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="job-link font-semibold leading-snug line-clamp-1"
+                      style={{ color: 'var(--ink-hi)', fontSize: '0.875rem' }}
+                      title={job.title}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {company}
+                    </a>
+                  </td>
+
+                  {/* Due date */}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    {due ? (
+                      <span className="text-sm" style={{ color: 'var(--ink-md)' }}>
+                        {due}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--ink-lo)' }}>--</span>
+                    )}
                   </td>
 
                   {/* Status badge */}
@@ -296,7 +304,7 @@ export function JobsTable({ jobs }: Props) {
                 {isExpanded && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       style={{ borderBottom: '1px solid var(--border-subtle)' }}
                     >
                       <div

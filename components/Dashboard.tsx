@@ -139,7 +139,8 @@ export function Dashboard({ initial }: Props) {
       style={{ background: 'var(--bg-base)', color: 'var(--ink-hi)' }}
     >
       <Header
-        revenueCents={data.revenueCents}
+        earnedCents={data.earnedCents}
+        invoicedCents={data.invoicedCents}
         jobsDone={data.counts.charged}
         paused={paused}
         onTogglePause={handleTogglePause}

@@ -20,6 +20,9 @@ export interface Job {
   reasoning: string | null; // why the worker chose to fulfil or skip
   deliverable: string | null; // the drafted work product
   fee_cents: number | null;
+  invoice_id: string | null;
+  paid: boolean;
+  paid_cents: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +55,8 @@ export interface DashboardPayload {
   jobs: Job[];
   events: AgentEvent[];
   revenueCents: number;
+  invoicedCents: number;
+  earnedCents: number;
   counts: { found: number; awaiting: number; charged: number; skipped: number };
   learnings: LearningsPayload;
   paused: boolean;

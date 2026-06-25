@@ -30,6 +30,37 @@ const ROLE_BG: Record<AgentRole, string> = {
   manager: 'var(--bg-raised)',
 };
 
+/**
+ * Derive a short tech descriptor for each event so viewers know exactly
+ * what executed (LLM + model, or Python + which API/module).
+ */
+function getTechTag(agent: AgentRole, action: string, detail: string | null): string {
+  const haystack = `${action} ${detail ?? ''}`.toLowerCase();
+
+  if (agent === 'scout') {
+    return 'Python · Companies House API';
+  }
+
+  if (agent === 'worker') {
+    return action === 'fulfilled'
+      ? 'LLM · Qwen2.5-7B-Instruct (Modal GPU)'
+      : 'Python · worker orchestration';
+  }
+
+  if (agent === 'finance') {
+    if (haystack.includes('whatsapp') || haystack.includes('wassist')) {
+      return 'Wassist · WhatsApp API';
+    }
+    return 'Python · PayPal API';
+  }
+
+  if (agent === 'manager') {
+    return 'Python · control loop';
+  }
+
+  return 'Python function';
+}
+
 function timeAgo(iso: string): string {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (secs < 60) return `${secs}s ago`;
@@ -88,6 +119,7 @@ export function ActivityFeed({ events }: Props) {
 
         {sorted.map((event) => {
           const fresh = isNew(event.id);
+          const techTag = getTechTag(event.agent, event.action, event.detail);
 
           return (
             <div
@@ -125,6 +157,19 @@ export function ActivityFeed({ events }: Props) {
                     {event.detail}
                   </p>
                 )}
+                {/* Tech descriptor chip */}
+                <span
+                  className="inline-block mt-1 text-xs px-1.5 py-px rounded"
+                  style={{
+                    fontFamily: 'var(--font-geist-mono)',
+                    color: 'var(--ink-lo)',
+                    background: 'var(--bg-raised)',
+                    fontSize: '0.68rem',
+                    letterSpacing: '0.01em',
+                  }}
+                >
+                  {techTag}
+                </span>
               </div>
 
               {/* Timestamp */}
