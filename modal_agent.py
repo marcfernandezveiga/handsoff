@@ -388,10 +388,22 @@ async def fetch_ch_demand() -> list:
         profile_tasks = [lambda c=c: fetch_profile(c) for c in companies]
         profiles = await p_limit(profile_tasks, CH_CONCURRENCY)
 
-        # Step 3: filter eligible profiles and fetch directors
+        # Step 3: filter eligible profiles and fetch directors.
+        # Guard: only keep companies whose profile reports company_status == "active".
+        # The advanced-search uses status=active but the per-company profile is the
+        # source of truth — a company can transition to dissolved/liquidation between
+        # the search and the profile fetch, so we re-check here explicitly.
         eligible = []
         for profile in profiles:
             if not profile:
+                continue
+            company_status = profile.get("company_status", "")
+            if company_status != "active":
+                print(
+                    f"[scout] Skipping {profile.get('company_name', '?')} "
+                    f"({profile.get('company_number', '?')}): "
+                    f"company_status='{company_status}' (not active)"
+                )
                 continue
             accounts = profile.get("accounts", {})
             next_due = accounts.get("next_due", "")
