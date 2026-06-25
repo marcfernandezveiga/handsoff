@@ -223,6 +223,13 @@ body {
   color: var(--ink-md);
 }
 
+/* ─── Sidebar nav item ───────────────────────────────────────────────────────── */
+
+.sidebar-item:hover:not([aria-current="page"]) {
+  background: var(--bg-raised) !important;
+  color: var(--ink-hi) !important;
+}
+
 /* ─── Job link ───────────────────────────────────────────────────────────────── */
 
 .job-link {
