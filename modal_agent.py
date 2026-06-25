@@ -1,5 +1,6 @@
 """
 modal_agent.py — Autonomous loop for Hands Off, running on Modal as a scheduled function.
+# v2: real PayPal invoicing with correct sandbox invoicer email + recipient_view_url
 
 Replaces the TypeScript daemon + local process. Runs entirely server-side, writes to
 Supabase. Vercel/Next.js app is read-only after this.
@@ -879,7 +880,8 @@ async def _get_paypal_token(client_id: str, secret: str) -> str:
 
 
 async def create_paypal_invoice(job_title: str, fee_cents: int) -> dict:
-    """Create a real PayPal sandbox invoice in GBP. Falls back to simulated on any error."""
+    """Create a real PayPal sandbox invoice in GBP, send it, and return the real
+    recipient_view_url from PayPal (never hand-constructed). Falls back to simulated on any error."""
     client_id = os.environ.get("PAYPAL_CLIENT_ID", "")
     secret = os.environ.get("PAYPAL_SECRET", "")
 
@@ -900,8 +902,9 @@ async def create_paypal_invoice(job_title: str, fee_cents: int) -> dict:
                 "payment_term": {"term_type": "DUE_ON_RECEIPT"},
             },
             "invoicer": {
+                # Real sandbox business account — fake email causes 422 on /send
                 "name": {"given_name": "Hands", "surname": "Off"},
-                "email_address": "handsoff-demo@example.com",
+                "email_address": "sb-mvsx4751323546@business.example.com",
             },
             "primary_recipients": [{
                 "billing_info": {
@@ -931,20 +934,48 @@ async def create_paypal_invoice(job_title: str, fee_cents: int) -> dict:
         href_id = href.split("/")[-1] if href else None
         invoice_id = created.get("id") or href_id or f"PP-INV-{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
-        # Send the invoice (best-effort — creation is the important step)
+        # Send the invoice to the recipient — must use send_to_recipient (not send_to_invoicer)
         try:
             async with httpx.AsyncClient(timeout=PAYPAL_TIMEOUT) as client:
-                await client.post(
+                send_r = await client.post(
                     f"{PAYPAL_BASE}/v2/invoicing/invoices/{invoice_id}/send",
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                    json={"send_to_invoicer": True},
+                    json={"send_to_recipient": True},
                 )
+                if not send_r.is_success:
+                    print(f"[finance] invoice send {send_r.status_code}: {send_r.text[:300]}")
+                else:
+                    print(f"[finance] invoice {invoice_id} sent successfully")
         except Exception as send_err:
             print(f"[finance] invoice send failed (non-fatal): {send_err}")
 
+        # Fetch the invoice to get the real recipient_view_url — never construct URLs by hand
+        recipient_view_url = None
+        try:
+            async with httpx.AsyncClient(timeout=PAYPAL_TIMEOUT) as client:
+                get_r = await client.get(
+                    f"{PAYPAL_BASE}/v2/invoicing/invoices/{invoice_id}",
+                    headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                )
+                if get_r.is_success:
+                    invoice_data = get_r.json()
+                    recipient_view_url = (
+                        invoice_data.get("detail", {})
+                        .get("metadata", {})
+                        .get("recipient_view_url")
+                    )
+                    print(f"[finance] recipient_view_url: {recipient_view_url}")
+                else:
+                    print(f"[finance] invoice GET {get_r.status_code}: {get_r.text[:200]}")
+        except Exception as get_err:
+            print(f"[finance] invoice GET failed (non-fatal): {get_err}")
+
+        # Fall back to the standard invoicing URL only if GET failed to return one
+        invoice_url = recipient_view_url or f"https://www.sandbox.paypal.com/invoice/payerView/details/{invoice_id}"
+
         return {
             "invoice_id": invoice_id,
-            "invoice_url": f"https://www.sandbox.paypal.com/invoice/p/#{invoice_id}",
+            "invoice_url": invoice_url,
             "simulated": False,
         }
 
